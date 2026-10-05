@@ -17,11 +17,13 @@
   var KEY_SLOT = 'shelter-playtest:player:slot';
   var KEY_TAB = 'shelter-playtest:player:tab';
 
+  /* primary：手机底栏常驻；其余收进「更多」。电脑端全部显示在侧栏。 */
   var TABS = [
-    { id: 'status', name: '状态' },
-    { id: 'inventory', name: '库存' },
-    { id: 'loadout', name: '携带' },
-    { id: 'scavenge', name: '搜刮' },
+    { id: 'dashboard', name: '总览', primary: true },
+    { id: 'status', name: '状态', primary: true },
+    { id: 'inventory', name: '库存', primary: true },
+    { id: 'loadout', name: '携带', primary: true },
+    { id: 'scavenge', name: '搜刮', primary: true },
     { id: 'action', name: '行动' },
     { id: 'identity', name: '身份' },
     { id: 'score', name: '分数' },
@@ -36,7 +38,8 @@
   var state = null;
   var notices = [];
   var undo = new U.UndoStack(40);
-  var ui = { tab: 'status', filter: 'all', drafts: {}, keep: {}, transfer: {} };
+  var KEY_HIDE_ID = 'shelter-playtest:player:hide-identity';
+  var ui = { tab: 'dashboard', filter: 'all', drafts: {}, keep: {}, transfer: {}, moreOpen: false, hideIdentity: U.readKey(KEY_HIDE_ID) === '1' };
 
   // ================================================================ 演示
 
@@ -184,6 +187,7 @@
 
   function setTab(id) {
     ui.tab = id;
+    ui.moreOpen = false;
     U.writeKey(KEY_TAB, id);
     render();
     window.scrollTo(0, 0);
@@ -230,7 +234,7 @@
     var used = invTicks();
     var cap = state.rules.inventoryCapacityTicks;
     var over = C.isInt(cap) && used > cap;
-    top.appendChild(h('div', { class: 'p-top' },
+    top.appendChild(h('div', { class: 'p-top' + (ui.tab === 'dashboard' ? ' on-dashboard' : '') },
       h('div', { class: 'p-top-row' },
         h('div', { class: 'p-name' }, h('b', null, state.name || '未命名玩家'), state.alive ? null : chip('已死亡', 'danger')),
         h('div', { class: 'p-day' },
@@ -262,18 +266,280 @@
     });
   }
 
+  function tabButton(t) {
+    return h('button', { type: 'button', class: 'tab ' + (ui.tab === t.id ? 'on' : ''), 'data-tab': t.id, 'aria-current': ui.tab === t.id ? 'page' : null, onclick: function () { setTab(t.id); } }, t.name);
+  }
+
+  /** 手机：底栏 5 个常用页 +「更多」；平板：顶部一行；电脑：左侧栏。三种布局共用同一组按钮，由 CSS 排布。 */
   function renderTabs() {
     var nav = U.clear(document.getElementById('tabs'));
-    TABS.forEach(function (t) {
-      nav.appendChild(h('button', { type: 'button', class: 'tab ' + (ui.tab === t.id ? 'on' : ''), 'data-tab': t.id, 'aria-current': ui.tab === t.id ? 'page' : null, onclick: function () { setTab(t.id); } }, t.name));
-    });
+    var current = TABS.find(function (t) { return t.id === ui.tab; });
+    var inMore = current && !current.primary;
+    nav.appendChild(h('div', { class: 'tabs-primary' },
+      TABS.filter(function (t) { return t.primary; }).map(tabButton),
+      h('button', {
+        type: 'button', class: 'tab more-btn ' + (inMore ? 'on' : ''), 'aria-expanded': ui.moreOpen ? 'true' : 'false', 'aria-controls': 'tabs-more',
+        onclick: function (e) { e.stopPropagation(); ui.moreOpen = !ui.moreOpen; renderTabs(); }
+      }, inMore ? current.name : '更多')));
+    nav.appendChild(h('div', { class: 'tabs-secondary' + (ui.moreOpen ? ' open' : ''), id: 'tabs-more' },
+      TABS.filter(function (t) { return !t.primary; }).map(tabButton)));
   }
 
   function renderMain() {
     var main = U.clear(document.getElementById('main'));
-    var views = { status: renderStatus, inventory: renderInventory, loadout: renderLoadout, scavenge: renderScavenge, action: renderAction, identity: renderIdentity, score: renderScore, save: renderSave };
+    var views = { dashboard: renderDashboard, status: renderStatus, inventory: renderInventory, loadout: renderLoadout, scavenge: renderScavenge, action: renderAction, identity: renderIdentity, score: renderScore, save: renderSave };
     main.className = 'main p-main tab-' + ui.tab;
-    main.appendChild((views[ui.tab] || renderStatus)());
+    main.appendChild((views[ui.tab] || renderDashboard)());
+  }
+
+  // ================================================================ 总览
+
+  /* 状态一律「图标形状＋文字＋颜色」三重编码：橙与红在色觉差异下难以区分，颜色从不单独表达含义。 */
+  var SEV = {
+    ok: { cls: 'ok', icon: 'check', word: '正常' },
+    info: { cls: 'info', icon: 'info', word: '提示' },
+    warning: { cls: 'warn', icon: 'warn', word: '注意' },
+    critical: { cls: 'crit', icon: 'stop', word: '危险' }
+  };
+
+  function sevBadge(level, word) {
+    var sv = SEV[level] || SEV.info;
+    return h('span', { class: 'sev sev-' + sv.cls }, U.icon(sv.icon), word || sv.word);
+  }
+
+  /** 进度条：填充色表示严重度，轨道是同一色相的浅色阶。 */
+  function meter(value, max, level, label) {
+    var pct = max > 0 ? Math.max(0, Math.min(100, (value / max) * 100)) : 0;
+    return h('span', {
+      class: 'meter2 m-' + (SEV[level] || SEV.ok).cls, role: 'meter', 'aria-label': label,
+      'aria-valuemin': '0', 'aria-valuemax': String(max), 'aria-valuenow': String(value)
+    }, h('span', { class: 'meter2-fill', style: 'width:' + pct + '%' }));
+  }
+
+  /** 分级条：三档状态（如口渴）按档位填充，2px 间隔分开。 */
+  function stepsBar(names, index, level) {
+    return h('span', { class: 'steps m-' + (SEV[level] || SEV.ok).cls, 'aria-hidden': 'true' },
+      names.map(function (n, i) { return h('span', { class: 'step' + (i <= index ? ' on' : '') }); }));
+  }
+
+  /** 生命没有确定上限时，用「一格一点生命」表示，不暗示上限。 */
+  function pips(n) {
+    var shown = Math.max(0, Math.min(n, 12));
+    var out = [];
+    for (var i = 0; i < shown; i++) out.push(h('span', { class: 'pip' }));
+    if (n > 12) out.push(h('span', { class: 'pip-more' }, '+' + (n - 12)));
+    return h('span', { class: 'pips', 'aria-hidden': 'true' }, out);
+  }
+
+  function tile(o) {
+    return h('button', { type: 'button', class: 'tile ' + (o.cls || ''), 'data-tile': o.key, onclick: function () { setTab(o.tab); } },
+      h('span', { class: 'tile-head' }, h('span', { class: 'tile-label' }, o.label), o.badge || null),
+      h('span', { class: 'tile-value' }, o.value, o.unit ? h('span', { class: 'tile-unit' }, o.unit) : null),
+      o.viz || null,
+      o.sub ? h('span', { class: 'tile-sub' }, o.sub) : null);
+  }
+
+  function renderDashboard() {
+    return h('div', { class: 'dash' },
+      vitalsSection(),
+      quickActions(),
+      h('div', { class: 'dash-cols' },
+        h('div', { class: 'dash-col' }, alertsCard(), compositionCard(), recentCard()),
+        h('div', { class: 'dash-col' }, todayCard(), conditionsCard(), identityCard())));
+  }
+
+  function vitalsSection() {
+    var r = state.rules;
+    var hp = state.hp;
+    var zone = C.hungerZone(state.hunger, r);
+    var manual = state.hungerManual;
+    var hungerWord = zone || manual || '未记录';
+    var hungerLevel = hungerWord === '饥饿' ? 'warning' : hungerWord === '未记录' ? 'info' : 'ok';
+    var thirstIdx = THIRST.indexOf(state.thirst);
+    var thirstLevel = thirstIdx >= 2 ? 'critical' : thirstIdx === 1 ? 'warning' : 'ok';
+    var used = invTicks();
+    var cap = r.inventoryCapacityTicks;
+    var over = C.isInt(cap) && used > cap;
+    var counts = C.wealthCounts(state.inventory);
+    var w = C.wealthScore(counts, !state.alive);
+    var actedToday = state.action.day === today() && state.action.used;
+    var carried = state.loadout ? state.loadout.items.reduce(function (n, row) { return n + row.qty; }, 0) : 0;
+    return h('section', { class: 'vitals', 'aria-label': '核心状态' },
+      tile({
+        key: 'hp', cls: 'hero', tab: 'status', label: '生命',
+        badge: !state.alive ? sevBadge('info', '已死亡') : hp <= 0 ? sevBadge('critical', '生命为 0') : sevBadge('ok', '存活'),
+        value: String(hp), unit: C.isInt(r.hpMax) ? '／' + r.hpMax : '',
+        viz: C.isInt(r.hpMax) ? meter(hp, r.hpMax, hp <= 0 ? 'critical' : 'ok', '生命') : pips(hp),
+        sub: '基础战斗力 ' + Math.max(0, hp) + (C.isInt(r.hpMax) ? '' : ' · 生命上限待配置')
+      }),
+      tile({
+        key: 'hunger', tab: 'status', label: '饥饿', badge: sevBadge(hungerLevel, zone ? '自动' : '手动'),
+        value: hungerWord, unit: C.isNum(state.hunger) ? ' ' + state.hunger : '',
+        viz: C.isInt(r.hungerMax) && C.isNum(state.hunger) ? meter(state.hunger, r.hungerMax, hungerLevel, '饥饿值') : null,
+        sub: zone ? '按阈值自动判定' : '阈值待配置'
+      }),
+      tile({
+        key: 'thirst', tab: 'status', label: '口渴', badge: sevBadge(thirstLevel),
+        value: state.thirst, viz: stepsBar(THIRST, thirstIdx, thirstLevel), sub: '补水幅度待定'
+      }),
+      tile({
+        key: 'mind', tab: 'status', label: '意识', badge: sevBadge(state.consciousness === '昏迷' ? 'critical' : 'ok'),
+        value: state.consciousness, sub: state.statuses.length ? '负面状态 ' + state.statuses.length + ' 个' : '没有负面状态'
+      }),
+      tile({
+        key: 'inventory', tab: 'inventory', label: '库存占位', badge: over ? sevBadge('warning', '超出上限') : sevBadge('ok', '未超出'),
+        value: C.fmtUnits(used), unit: '／' + C.fmtUnits(cap) + ' 单位',
+        viz: meter(used, cap || used || 1, over ? 'warning' : 'ok', '库存占位'),
+        sub: C.countPieces(state.inventory) + ' 件' + (carried ? ' · 携带中 ' + carried + ' 件' : '')
+      }),
+      tile({
+        key: 'wealth', tab: 'score', label: '财富估算',
+        badge: !state.alive ? sevBadge('info', '死亡清零') : w.pending ? sevBadge('warning', '待主持人计分') : null,
+        value: w.score == null ? '—' : String(w.score), unit: w.score == null ? '' : ' 分',
+        sub: '钞票 ' + counts.cash + ' · 名画 ' + counts.painting + ' · 珠宝 ' + counts.jewel + ' · 地图笔记 ' + C.mapNotesTotal(state.inventory)
+      }),
+      tile({
+        key: 'today', tab: 'action', label: '今天', badge: actedToday ? sevBadge('ok', '已行动') : sevBadge('info', '未行动'),
+        value: '第 ' + today() + ' 天', sub: state.publicInfo.seat ? '座次 ' + state.publicInfo.seat : '座次未记录'
+      }));
+  }
+
+  function quickActions() {
+    var sc = state.scavenge;
+    var scavLive = sc && (sc.status === 'running' || sc.status === 'organize');
+    var actedToday = state.action.day === today() && state.action.used;
+    return h('div', { class: 'quick', role: 'group', 'aria-label': '快捷操作' },
+      h('button', { type: 'button', class: 'btn primary', onclick: addItemDialog }, U.icon('plus'), '添加物品'),
+      h('button', { type: 'button', class: 'btn' + (scavLive ? ' risk' : ''), onclick: function () { setTab('scavenge'); } }, scavLive ? '继续搜刮' : '搜刮'),
+      h('button', {
+        type: 'button', class: 'btn', onclick: function () {
+          commit('行动标记', function (s) { s.action = { day: today(), used: !actedToday, note: s.action.note || '' }; log(s, actedToday ? '取消今日行动已使用' : '标记今日行动已使用'); });
+        }
+      }, actedToday ? '取消行动标记' : '标记今日已行动'),
+      h('button', { type: 'button', class: 'btn', onclick: function () { setTab('score'); } }, '分数上报'));
+  }
+
+  function dashCard(title, body, opts) {
+    opts = opts || {};
+    return h('section', { class: 'card dash-card ' + (opts.cls || ''), 'aria-label': title },
+      h('div', { class: 'card-head' }, h('h2', null, title), opts.action || null),
+      body);
+  }
+
+  function linkBtn(label, tab) {
+    return h('button', { type: 'button', class: 'btn small ghost go', onclick: function () { setTab(tab); } }, label, U.icon('arrow'));
+  }
+
+  function alertsCard() {
+    var alerts = C.playerAlerts(state);
+    var body = alerts.length ? h('ul', { class: 'alerts' }, alerts.map(function (a) {
+      return h('li', { class: 'alert-row' },
+        sevBadge(a.level),
+        h('span', { class: 'alert-text' }, a.text),
+        h('button', { type: 'button', class: 'btn small', onclick: function () { setTab(a.tab); } }, '查看'));
+    })) : h('p', { class: 'all-clear' }, sevBadge('ok', '一切正常'), ' 没有需要处理的提醒。');
+    return dashCard('需要留意', body, { cls: 'c-alerts' });
+  }
+
+  function compositionCard() {
+    var rows = C.capacityByCategory(state.inventory, state.customItems, state.rules);
+    var cap = state.rules.inventoryCapacityTicks;
+    var used = invTicks();
+    var scale = Math.max(cap || 0, used, 1);
+    var tip = h('div', { class: 'viz-tip', role: 'status', 'aria-live': 'polite', hidden: true });
+    function showTip(el, row) {
+      tip.textContent = '';
+      tip.appendChild(h('b', null, C.fmtUnits(row.ticks) + ' 单位'));
+      tip.appendChild(document.createTextNode(' ' + row.name + ' · ' + row.pieces + ' 件' + (cap ? ' · 占上限 ' + Math.round((row.ticks / cap) * 100) + '%' : '')));
+      tip.hidden = false;
+      tip.style.top = (el.offsetTop - 6) + 'px';
+    }
+    var body = rows.length ? h('div', { class: 'bars-wrap' },
+      h('ul', { class: 'bars', 'aria-label': '各分类占位（单位）' }, rows.map(function (row) {
+        var li = h('li', { class: 'bar-row', tabindex: '0', 'aria-label': row.name + ' ' + C.fmtUnits(row.ticks) + ' 单位，' + row.pieces + ' 件' },
+          h('span', { class: 'bar-label' }, row.name),
+          h('span', { class: 'bar-track' },
+            h('span', { class: 'bar', style: 'width:calc((100% - 6.5em) * ' + (row.ticks / scale).toFixed(4) + ')' }),
+            h('span', { class: 'bar-value' }, C.fmtUnits(row.ticks), h('span', { class: 'muted' }, ' · ' + row.pieces + '件'))));
+        li.addEventListener('pointerenter', function () { showTip(li, row); });
+        li.addEventListener('focus', function () { showTip(li, row); });
+        li.addEventListener('pointerleave', function () { tip.hidden = true; });
+        li.addEventListener('blur', function () { tip.hidden = true; });
+        return li;
+      })),
+      tip,
+      h('p', { class: 'bars-caption' }, '比例尺 0–' + C.fmtUnits(scale) + ' 单位' + (cap ? '（个人总库存上限 ' + C.fmtUnits(cap) + '）' : '') + '；已用 ' + C.fmtUnits(used) + ' 单位')) :
+      h('p', { class: 'empty' }, '库存是空的。主持人发放物资后在「库存」页手动添加。');
+    return dashCard('占位构成', body, { cls: 'c-comp', action: linkBtn('库存', 'inventory') });
+  }
+
+  function todayCard() {
+    var lo = state.loadout;
+    var sc = state.scavenge;
+    var items = [];
+    if (lo) {
+      var carriedEntries = [];
+      lo.items.forEach(function (row) {
+        var e = C.findEntry(state.inventory, row.entryId);
+        if (e) for (var i = 0; i < row.qty; i++) carriedEntries.push(e);
+      });
+      var cs = C.combatSummary(state.hp, carriedEntries, state.customItems, tempAttack());
+      items.push(h('li', null, h('b', null, (lo.context === 'event' ? '事件' : '守夜') + '携带中'),
+        h('span', null, C.fmtUnits(C.loadoutTicks(state)) + '／' + (lo.limitTicks == null ? '上限待定' : C.fmtUnits(lo.limitTicks)) + ' 单位 · ' +
+          lo.items.map(function (row) { var e = C.findEntry(state.inventory, row.entryId); return e ? defOf(e).name + (row.qty > 1 ? '×' + row.qty : '') : ''; }).filter(Boolean).join('、')),
+        h('span', { class: 'muted small' }, '战斗力 ' + (cs.multiple ? cs.bestOnly + '～' + cs.stacked + '（叠加待定）' : cs.stacked))));
+    }
+    if (sc && sc.status !== 'submitted') items.push(h('li', null, h('b', null, '搜刮'), h('span', null, sc.status === 'running' ? '进行中：第 ' + sc.rounds.length + '／' + sc.cfg.rounds + ' 轮' : '待整理提交')));
+    state.temporaryEffects.forEach(function (fx) { items.push(h('li', null, h('b', null, '临时效果'), h('span', null, fx.text))); });
+    if (state.publicInfo.notes) items.push(h('li', null, h('b', null, '公共笔记'), h('span', { class: 'clamp' }, state.publicInfo.notes)));
+    var body = items.length ? h('ul', { class: 'facts' }, items) : h('p', { class: 'empty' }, '没有携带中的物品、进行中的搜刮或临时效果。');
+    return dashCard('进行中', body, { cls: 'c-today', action: linkBtn('携带', 'loadout') });
+  }
+
+  function conditionsCard() {
+    var body = state.statuses.length ? h('ul', { class: 'facts' }, state.statuses.map(function (st) {
+      var due = st.statusId === 'bleeding' && C.isInt(st.nextDay) && today() >= st.nextDay;
+      return h('li', null, h('b', null, st.name), h('span', null,
+        st.statusId === 'bleeding' ? '第 ' + st.startDay + ' 天获得 · 第 ' + (st.nextDay == null ? '?' : st.nextDay) + ' 天提醒' : (st.note || '效果见状态页')),
+        due ? sevBadge('warning', '到期') : null);
+    })) : h('p', { class: 'all-clear' }, sevBadge('ok', '无'), ' 没有负面状态。');
+    return dashCard('负面状态', body, { cls: 'c-cond', action: linkBtn('状态', 'status') });
+  }
+
+  function identityCard() {
+    var prof = state.rules.professionsEnabled ? C.getProfession(state.professionId) : null;
+    var task = state.rules.tasksEnabled ? C.getTask(state.taskId) : null;
+    var toggle = h('button', {
+      type: 'button', class: 'btn small ghost', 'aria-pressed': ui.hideIdentity ? 'true' : 'false', onclick: function () {
+        ui.hideIdentity = !ui.hideIdentity;
+        U.writeKey(KEY_HIDE_ID, ui.hideIdentity ? '1' : '0');
+        render();
+      }
+    }, U.icon(ui.hideIdentity ? 'unlock' : 'eyeOff'), ui.hideIdentity ? '显示' : '遮住');
+    var body;
+    if (ui.hideIdentity) {
+      body = h('p', { class: 'muted' }, '身份与目标已遮住（只在这台设备上生效）。');
+    } else {
+      var rows = [
+        ['爱的人', state.loveName || '未填写'],
+        ['恨的人', state.hateName || '未填写']
+      ];
+      if (prof) rows.push(['职业', prof.name + '（草案）']);
+      if (task) {
+        var progress = task.progress === 'events' ? state.taskProgress.events.length + '／' + task.target : task.progress === 'counter' ? state.taskProgress.count + '／' + task.target : '结算时判断';
+        rows.push(['秘密任务', task.name + ' · ' + (state.taskProgress.done ? '已完成' : progress)]);
+      }
+      body = h('dl', { class: 'kv' }, rows.map(function (r) { return [h('dt', null, r[0]), h('dd', null, r[1])]; }));
+    }
+    return dashCard('身份与目标', body, { cls: 'c-id', action: toggle });
+  }
+
+  function recentCard() {
+    var list = state.log.slice(0, 6);
+    var body = list.length ? h('ul', { class: 'log-list compact' }, list.map(function (l) {
+      return h('li', null, h('span', { class: 'log-meta' }, (l.day != null ? '第' + l.day + '天 ' : '') + U.fmtTime(l.at).slice(6)), l.text);
+    })) : h('p', { class: 'empty' }, '还没有记录。');
+    return dashCard('最近记录', body, { cls: 'c-recent', action: linkBtn('全部', 'save') });
   }
 
   // ================================================================ 状态
@@ -521,7 +787,7 @@
     var over = C.isInt(cap) && used > cap;
     var list = state.inventory.filter(function (e) { return ui.filter === 'all' || defOf(e).category === ui.filter; });
     return h('div', { class: 'stack' },
-      h('section', { class: 'card' },
+      h('section', { class: 'card wide' },
         h('div', { class: 'row between' }, h('h2', null, '库存'), h('span', { class: 'cap ' + (over ? 'risk-text' : 'ok-text') }, '总占位 ', h('b', null, C.fmtUnits(used) + ' / ' + C.fmtUnits(cap)), ' 单位')),
         h('div', { class: 'meter' + (over ? ' over' : ''), role: 'img', 'aria-label': '库存占位 ' + C.fmtUnits(used) + ' / ' + C.fmtUnits(cap) }, h('span', { style: 'width:' + Math.min(100, cap ? (used / cap) * 100 : 0) + '%' })),
         over ? h('div', { class: 'callout risk' }, '超出总库存上限 ' + C.fmtUnits(used - cap) + ' 单位：只警告，不阻断主持人裁定。') : null,
@@ -1239,7 +1505,7 @@
     var round = C.currentScavengeRound(sc);
     if (!round) return h('p', null, '处理中…');
     var remaining = Math.max(0, round.deadline - Date.now());
-    return h('section', { class: 'card scav' },
+    return h('section', { class: 'card scav wide' },
       h('div', { class: 'row between' }, h('h2', null, '第 ' + (round.index + 1) + ' / ' + sc.cfg.rounds + ' 轮'),
         h('div', { class: 'scav-clock', id: 'scav-clock' }, (remaining / 1000).toFixed(1) + ' 秒')),
       h('div', { class: 'meter' }, h('span', { id: 'scav-bar', style: 'width:' + (remaining / (sc.cfg.seconds * 1000)) * 100 + '%' })),
@@ -1791,6 +2057,11 @@
     var tab = U.readKey(KEY_TAB);
     if (tab && TABS.some(function (t) { return t.id === tab; })) ui.tab = tab;
     state = loadState();
+    // 点击「更多」面板以外的地方时收起
+    document.addEventListener('click', function (e) {
+      // 点击后被重绘掉的按钮已脱离文档，不能据此判断是「点在外面」
+      if (ui.moreOpen && e.target.isConnected && !e.target.closest('#tabs')) { ui.moreOpen = false; renderTabs(); }
+    });
     if (state.scavenge && state.scavenge.status === 'running') {
       if (C.settleScavenge(state.scavenge, Date.now(), state.customItems, Math.random)) log(state, '搜刮：离开期间已超时的回合按默认项记录');
     }

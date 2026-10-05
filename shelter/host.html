@@ -1603,6 +1603,74 @@ pre.code { background: var(--surface-2); padding: 10px; border-radius: 8px; over
     };
   }
 
+  // ---------------------------------------------------------------- 玩家总览
+
+  var ALERT_ORDER = { critical: 0, warning: 1, info: 2 };
+
+  /** 携带中物品的占位（按引用的库存实例计算，不复制物品）。 */
+  function loadoutTicks(s) {
+    if (!s.loadout) return 0;
+    return s.loadout.items.reduce(function (sum, row) {
+      var e = findEntry(s.inventory, row.entryId);
+      return sum + (e ? row.qty * (getDef(e.defId, s.customItems).capacityTicks || 0) : 0);
+    }, 0);
+  }
+
+  /**
+   * 玩家总览的提醒：只汇总已经记录下来的事实与已确认规则，不推导新规则。
+   * level: critical（严重）／warning（注意）／info（提示）；tab: 去哪一页处理。
+   */
+  function playerAlerts(s) {
+    var out = [];
+    var r = s.rules;
+    var day = s.publicInfo ? s.publicInfo.day : null;
+    if (s.alive === false) out.push({ level: 'info', text: '已标记死亡：财富分不保留，爱恨与任务分保留', tab: 'status' });
+    if (isNum(s.hp) && s.hp <= 0) out.push({ level: 'critical', text: '生命为 0：处理方式与死亡时点待主持人裁定', tab: 'status' });
+    if (s.thirst === '脱水') out.push({ level: 'critical', text: '脱水：直接昏迷', tab: 'status' });
+    else if (s.thirst === '口渴') out.push({ level: 'warning', text: '口渴：补水幅度待定，饮水后手动调整', tab: 'status' });
+    if (s.consciousness === '昏迷' && s.thirst !== '脱水') out.push({ level: 'critical', text: '昏迷中：如何解除尚未确定', tab: 'status' });
+    if ((hungerZone(s.hunger, r) || s.hungerManual) === '饥饿') out.push({ level: 'warning', text: '饥饿：相关成功率降低', tab: 'status' });
+    (s.statuses || []).forEach(function (st) {
+      if (st.statusId === 'bleeding' && isInt(st.nextDay) && isInt(day) && day >= st.nextDay) {
+        out.push({ level: 'warning', text: '流血伤口第 ' + st.nextDay + ' 天到期：先与主持人确认是否扣1生命', tab: 'status' });
+      }
+    });
+    var used = listTicks(s.inventory, s.customItems, r);
+    if (isInt(r.inventoryCapacityTicks) && used > r.inventoryCapacityTicks) {
+      out.push({ level: 'warning', text: '库存超出上限 ' + fmtUnits(used - r.inventoryCapacityTicks) + ' 单位（只警告，由主持人裁定）', tab: 'inventory' });
+    }
+    if (s.loadout) {
+      var carried = loadoutTicks(s);
+      var label = s.loadout.context === 'event' ? '事件' : '守夜';
+      if (isInt(s.loadout.limitTicks) && carried > s.loadout.limitTicks) {
+        out.push({ level: 'warning', text: label + '携带超出上限 ' + fmtUnits(carried - s.loadout.limitTicks) + ' 单位', tab: 'loadout' });
+      }
+      out.push({ level: 'info', text: label + '携带中：' + fmtUnits(carried) + ' 单位，返回后记得清空标记', tab: 'loadout' });
+    }
+    if (s.scavenge && s.scavenge.status === 'running') {
+      out.push({ level: 'warning', text: '搜刮进行中：第 ' + s.scavenge.rounds.length + '／' + s.scavenge.cfg.rounds + ' 轮，超时会自动选默认项', tab: 'scavenge' });
+    } else if (s.scavenge && s.scavenge.status === 'organize') {
+      out.push({ level: 'warning', text: '搜刮三轮已完成：待整理并一次性提交', tab: 'scavenge' });
+    }
+    if (s.alive !== false && !(s.action && s.action.day === day && s.action.used)) {
+      out.push({ level: 'info', text: '第 ' + day + ' 天的个人行动未标记为已使用', tab: 'action' });
+    }
+    return out.sort(function (a, b) { return ALERT_ORDER[a.level] - ALERT_ORDER[b.level]; });
+  }
+
+  /** 按分类汇总库存占位（总览的「占位构成」）。只返回有物品的分类，保持分类表顺序。 */
+  function capacityByCategory(list, customItems, rules) {
+    return CATEGORIES.map(function (cat) {
+      var entries = list.filter(function (e) { return getDef(e.defId, customItems).category === cat.id; });
+      return {
+        id: cat.id,
+        name: cat.name,
+        ticks: entries.reduce(function (sum, e) { return sum + entryTicks(e, customItems, rules); }, 0),
+        pieces: countPieces(entries)
+      };
+    }).filter(function (c) { return c.pieces > 0; });
+  }
+
   // ---------------------------------------------------------------- 搜刮
 
   function defaultScavengeTemplate() {
@@ -2018,6 +2086,9 @@ pre.code { background: var(--surface-2); padding: 10px; border-radius: 8px; over
     mapNotesTotal: mapNotesTotal,
     settlementTotal: settlementTotal,
     combatSummary: combatSummary,
+    loadoutTicks: loadoutTicks,
+    playerAlerts: playerAlerts,
+    capacityByCategory: capacityByCategory,
     defaultScavengeTemplate: defaultScavengeTemplate,
     generateCombo: generateCombo,
     comboTicks: comboTicks,
@@ -2088,6 +2159,10 @@ pre.code { background: var(--surface-2); padding: 10px; border-radius: 8px; over
     copy: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/>',
     undo: '<path d="M9 14L4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/>',
     warn: '<path d="M12 3l10 18H2z"/><path d="M12 10v4M12 17.5v.5"/>',
+    check: '<circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.8 2.8L16.5 9.5"/>',
+    stop: '<path d="M8.3 3h7.4L21 8.3v7.4L15.7 21H8.3L3 15.7V8.3z"/><path d="M12 7.5v5.5M12 16.5v.5"/>',
+    info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/>',
+    arrow: '<path d="M5 12h14M13 6l6 6-6 6"/>',
     timer: '<circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2.5M9 2h6"/>',
     plus: '<path d="M12 5v14M5 12h14"/>',
     minus: '<path d="M5 12h14"/>',

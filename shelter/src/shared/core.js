@@ -1230,6 +1230,74 @@
     };
   }
 
+  // ---------------------------------------------------------------- 玩家总览
+
+  var ALERT_ORDER = { critical: 0, warning: 1, info: 2 };
+
+  /** 携带中物品的占位（按引用的库存实例计算，不复制物品）。 */
+  function loadoutTicks(s) {
+    if (!s.loadout) return 0;
+    return s.loadout.items.reduce(function (sum, row) {
+      var e = findEntry(s.inventory, row.entryId);
+      return sum + (e ? row.qty * (getDef(e.defId, s.customItems).capacityTicks || 0) : 0);
+    }, 0);
+  }
+
+  /**
+   * 玩家总览的提醒：只汇总已经记录下来的事实与已确认规则，不推导新规则。
+   * level: critical（严重）／warning（注意）／info（提示）；tab: 去哪一页处理。
+   */
+  function playerAlerts(s) {
+    var out = [];
+    var r = s.rules;
+    var day = s.publicInfo ? s.publicInfo.day : null;
+    if (s.alive === false) out.push({ level: 'info', text: '已标记死亡：财富分不保留，爱恨与任务分保留', tab: 'status' });
+    if (isNum(s.hp) && s.hp <= 0) out.push({ level: 'critical', text: '生命为 0：处理方式与死亡时点待主持人裁定', tab: 'status' });
+    if (s.thirst === '脱水') out.push({ level: 'critical', text: '脱水：直接昏迷', tab: 'status' });
+    else if (s.thirst === '口渴') out.push({ level: 'warning', text: '口渴：补水幅度待定，饮水后手动调整', tab: 'status' });
+    if (s.consciousness === '昏迷' && s.thirst !== '脱水') out.push({ level: 'critical', text: '昏迷中：如何解除尚未确定', tab: 'status' });
+    if ((hungerZone(s.hunger, r) || s.hungerManual) === '饥饿') out.push({ level: 'warning', text: '饥饿：相关成功率降低', tab: 'status' });
+    (s.statuses || []).forEach(function (st) {
+      if (st.statusId === 'bleeding' && isInt(st.nextDay) && isInt(day) && day >= st.nextDay) {
+        out.push({ level: 'warning', text: '流血伤口第 ' + st.nextDay + ' 天到期：先与主持人确认是否扣1生命', tab: 'status' });
+      }
+    });
+    var used = listTicks(s.inventory, s.customItems, r);
+    if (isInt(r.inventoryCapacityTicks) && used > r.inventoryCapacityTicks) {
+      out.push({ level: 'warning', text: '库存超出上限 ' + fmtUnits(used - r.inventoryCapacityTicks) + ' 单位（只警告，由主持人裁定）', tab: 'inventory' });
+    }
+    if (s.loadout) {
+      var carried = loadoutTicks(s);
+      var label = s.loadout.context === 'event' ? '事件' : '守夜';
+      if (isInt(s.loadout.limitTicks) && carried > s.loadout.limitTicks) {
+        out.push({ level: 'warning', text: label + '携带超出上限 ' + fmtUnits(carried - s.loadout.limitTicks) + ' 单位', tab: 'loadout' });
+      }
+      out.push({ level: 'info', text: label + '携带中：' + fmtUnits(carried) + ' 单位，返回后记得清空标记', tab: 'loadout' });
+    }
+    if (s.scavenge && s.scavenge.status === 'running') {
+      out.push({ level: 'warning', text: '搜刮进行中：第 ' + s.scavenge.rounds.length + '／' + s.scavenge.cfg.rounds + ' 轮，超时会自动选默认项', tab: 'scavenge' });
+    } else if (s.scavenge && s.scavenge.status === 'organize') {
+      out.push({ level: 'warning', text: '搜刮三轮已完成：待整理并一次性提交', tab: 'scavenge' });
+    }
+    if (s.alive !== false && !(s.action && s.action.day === day && s.action.used)) {
+      out.push({ level: 'info', text: '第 ' + day + ' 天的个人行动未标记为已使用', tab: 'action' });
+    }
+    return out.sort(function (a, b) { return ALERT_ORDER[a.level] - ALERT_ORDER[b.level]; });
+  }
+
+  /** 按分类汇总库存占位（总览的「占位构成」）。只返回有物品的分类，保持分类表顺序。 */
+  function capacityByCategory(list, customItems, rules) {
+    return CATEGORIES.map(function (cat) {
+      var entries = list.filter(function (e) { return getDef(e.defId, customItems).category === cat.id; });
+      return {
+        id: cat.id,
+        name: cat.name,
+        ticks: entries.reduce(function (sum, e) { return sum + entryTicks(e, customItems, rules); }, 0),
+        pieces: countPieces(entries)
+      };
+    }).filter(function (c) { return c.pieces > 0; });
+  }
+
   // ---------------------------------------------------------------- 搜刮
 
   function defaultScavengeTemplate() {
@@ -1645,6 +1713,9 @@
     mapNotesTotal: mapNotesTotal,
     settlementTotal: settlementTotal,
     combatSummary: combatSummary,
+    loadoutTicks: loadoutTicks,
+    playerAlerts: playerAlerts,
+    capacityByCategory: capacityByCategory,
     defaultScavengeTemplate: defaultScavengeTemplate,
     generateCombo: generateCombo,
     comboTicks: comboTicks,

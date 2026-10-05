@@ -439,6 +439,39 @@ test('库存扣减不会变成负数', () => {
   assert.equal(inv.length, 0);
 });
 
+test('玩家总览提醒：按严重程度排序，只汇总已记录的事实', () => {
+  const s = C.newPlayerState();
+  s.publicInfo.day = 3;
+  s.action = { day: 3, used: true, note: '' };
+  assert.deepEqual(C.playerAlerts(s), [], '健康、已行动：没有提醒');
+  s.hp = 0;
+  s.thirst = '口渴';
+  s.statuses.push({ id: 'b', statusId: 'bleeding', name: '流血伤口', startDay: 1, nextDay: 3 });
+  C.addItem(s.inventory, 'painting', 6); // 12 单位，超出 10
+  const alerts = C.playerAlerts(s);
+  assert.deepEqual(alerts.map((a) => a.level), ['critical', 'warning', 'warning', 'warning']);
+  assert.ok(alerts[0].text.includes('生命为 0'));
+  assert.ok(alerts.some((a) => a.tab === 'inventory' && a.text.includes('2 单位')));
+  assert.ok(alerts.some((a) => a.text.includes('流血伤口第 3 天到期')));
+  s.publicInfo.day = 4;
+  assert.ok(C.playerAlerts(s).some((a) => a.level === 'info' && a.tab === 'action'), '新的一天行动未用');
+});
+
+test('总览提醒：搜刮与携带；占位按分类汇总', () => {
+  const s = C.newPlayerState();
+  s.action = { day: 1, used: true, note: '' };
+  const [axe] = C.addItem(s.inventory, 'axe', 1);
+  C.addItem(s.inventory, 'bread', 3);
+  s.loadout = { context: 'event', label: '', day: 1, limitTicks: 1, items: [{ entryId: axe.id, qty: 1 }] };
+  assert.equal(C.loadoutTicks(s), 2);
+  const levels = C.playerAlerts(s).map((a) => a.tab + ':' + a.level);
+  assert.deepEqual(levels, ['loadout:warning', 'loadout:info'], '携带超限只警告，携带中有提示');
+  s.scavenge = { status: 'organize', rounds: [], cfg: { rounds: 3 } };
+  assert.ok(C.playerAlerts(s).some((a) => a.tab === 'scavenge'));
+  const comp = C.capacityByCategory(s.inventory, [], s.rules);
+  assert.deepEqual(comp.map((c) => [c.id, c.ticks, c.pieces]), [['supply', 3, 3], ['equipment', 2, 1]]);
+});
+
 test('事件导入规范化：缺字段补齐，id 冲突换新', () => {
   const ev = C.normalizeEvent({ id: 'dup', name: '断电', options: [{ label: '参与', outcomes: [{ text: '无事', probability: 100 }] }] }, ['dup']);
   assert.notEqual(ev.id, 'dup');
