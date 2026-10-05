@@ -614,3 +614,40 @@ test('事件导入规范化：缺字段补齐，id 冲突换新', () => {
   assert.ok(C.probabilityStatus(ev.options[0]).complete);
   assert.deepEqual(C.validateEvent(ev), []);
 });
+
+// ---------------------------------------------------------------- 中英文
+
+test('英文界面：整句、拼接片段、「第 N 天」句式、量词与标点都能翻；中文模式原样返回', async () => {
+  const { loadDictionary } = await import('../build.mjs');
+  const I = require('../src/shared/i18n.js');
+  const dict = loadDictionary();
+  assert.ok(Object.keys(dict).length > 2000, '词典覆盖全部界面文字');
+  for (const [k, v] of Object.entries(dict)) assert.ok(v.trim() || v === ' ', '空译文：' + k);
+  I._setDict(dict);
+  I.setLang('zh');
+  assert.equal(I.T('下一阶段 →'), '下一阶段 →', '中文模式不翻译');
+  I.setLang('en');
+  assert.equal(I.T('下一阶段 →'), 'Next phase →');
+  assert.equal(I.T('第 2 天'), 'Day 2');
+  assert.equal(I.T('已行动 2／6'), 'Acted 2/6');
+  assert.equal(I.T('轮到 B·阿珍 行动（还剩 4 人）'), "B·Jen's turn (left: 4 players)");
+  assert.equal(I.T('流血伤口第 3 天到期：先与主持人确认是否扣1生命'), 'Bleeding wound Day 3 is due: check with the host whether to lose 1 HP');
+  assert.equal(I.T(' 次（用完消失；未用完整件仍占 0.5）'), ' uses (gone when used up; a partly used one still takes 0.5)');
+  assert.equal(I.T('口渴'), 'Thirsty');
+  assert.equal(I.TC('label', '口渴'), 'Thirst', '同一个词按语境取不同译法');
+  assert.equal(I.T('B·阿珍 2 / 3'), 'B·Jen 2 / 3');
+  assert.equal(I.T('Alice'), 'Alice', '没有中文的原样返回');
+  I.setLang('zh');
+});
+
+test('英文界面录入物品：英文名也能解析（Bread×3、Energy bar+2），中文名照旧', async () => {
+  const { loadDictionary } = await import('../build.mjs');
+  globalThis.window = { SHELTER_I18N_EN: loadDictionary() };
+  try {
+    const r = C.parseItemList('Bread×3, energy bar+2, 普通水', []);
+    assert.deepEqual(r.errors, []);
+    assert.deepEqual(r.items.map((i) => [i.defId, i.qty]), [['bread', 3], ['energy_bar', 2], ['water', 1]]);
+  } finally {
+    delete globalThis.window;
+  }
+});

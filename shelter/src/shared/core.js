@@ -187,6 +187,9 @@
     }
     var lower = key.toLowerCase();
     for (var j = 0; j < defs.length; j++) if (defs[j].id.toLowerCase() === lower) return defs[j];
+    // 英文界面下也能用英文名录入（Bread×3）：词典由页面内联，单元测试环境里没有
+    var en = typeof window !== 'undefined' && window.SHELTER_I18N_EN;
+    if (en) for (var k = 0; k < defs.length; k++) if (en[defs[k].name] && String(en[defs[k].name]).toLowerCase() === lower) return defs[k];
     return null;
   }
 

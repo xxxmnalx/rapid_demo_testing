@@ -218,6 +218,9 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14.5px; }
 .reveal-bar { display: flex; align-items: center; gap: 8px; justify-content: space-between; flex-wrap: wrap; background: var(--orange-soft); border: 1px solid #eccaa6; color: #6a3205; padding: 6px 12px; border-radius: 8px; margin-bottom: 12px; font-size: 14px; }
 
 @media (max-width: 640px) {
+  /* 英文按钮文字较长：窄屏上允许换行，而不是把页面撑宽 */
+  .btn { white-space: normal; max-width: 100%; text-align: center; }
+  .btn.small, .btn.icon-btn, .lang-btn { white-space: nowrap; }
   .grid2, .grid3 { grid-template-columns: minmax(0, 1fr); }
   .card { padding: 13px; }
 }
@@ -251,3 +254,6 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14.5px; }
 .m-warn { background: var(--orange-soft); } .m-warn .meter2-fill { background: var(--orange); }
 .m-crit { background: var(--red-soft); } .m-crit .meter2-fill { background: var(--red); }
 .m-info { background: var(--surface-3); } .m-info .meter2-fill { background: var(--muted); }
+
+/* ---------- 语言切换 ---------- */
+.lang-btn { min-width: 44px; font-weight: 650; letter-spacing: 0.02em; white-space: nowrap; flex: 0 0 auto; }

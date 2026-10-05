@@ -68,7 +68,7 @@
     s.statuses = [{ id: C.uid('st'), statusId: 'bleeding', name: '流血伤口', startDay: 1, nextDay: 3, note: '【演示】第1天在超市割伤' }];
     s.temporaryEffects = [{ id: C.uid('fx'), text: '下一次行动判定视为充盈（功能饮料）', day: 2, attack: null }];
     log(s, '载入演示存档（与正式存档完全分开）');
-    return s;
+    return U.localizeDemo(s);
   }
 
   // ================================================================ 存档与提交
@@ -202,6 +202,14 @@
 
   // ================================================================ 渲染骨架
 
+  var PAGE_TITLE = document.title;
+
+  /** 切换语言：只换显示文字，存档不变；页面标题与 <html lang> 一起换。 */
+  function onLangChange() {
+    document.title = U.T(PAGE_TITLE);
+    render();
+  }
+
   function render() {
     renderBanner();
     renderTop();
@@ -247,15 +255,17 @@
           h('button', { type: 'button', class: 'btn small icon-btn', 'aria-label': '前一天', onclick: function () { setDay(today() - 1); } }, '‹'),
           h('span', null, '第 ', h('b', null, String(today())), ' 天'),
           h('button', { type: 'button', class: 'btn small icon-btn', 'aria-label': '后一天', onclick: function () { setDay(today() + 1); } }, '›')),
-        h('button', { type: 'button', class: 'btn small', onclick: undoLast, disabled: !undo.peek(), title: undo.peek() ? '撤销：' + undo.peek().label : '' }, U.icon('undo'), '撤销')),
+        h('div', { class: 'p-top-tools' },
+          U.langToggle(onLangChange),
+          h('button', { type: 'button', class: 'btn small', onclick: undoLast, disabled: !undo.peek(), title: undo.peek() ? '撤销：' + undo.peek().label : '' }, U.icon('undo'), '撤销'))),
       h('div', { class: 'p-vitals', role: 'group', 'aria-label': '简要状态' },
         cell('hp', '生命', h('b', null, String(state.hp), C.isInt(r.hpMax) ? h('small', null, '／' + r.hpMax) : null),
           state.hp <= 0 ? 'crit' : state.hp <= 2 ? 'warn' : 'ok',
           C.isInt(r.hpMax) ? meter(state.hp, r.hpMax, state.hp <= 0 ? 'critical' : 'ok', '生命') : pips(state.hp), 'status'),
-        cell('hunger', '饥饿', h('b', null, hw, C.isNum(state.hunger) ? h('small', null, ' ' + state.hunger) : null),
+        cell('hunger', U.TC('label', '饥饿'), h('b', null, hw, C.isNum(state.hunger) ? h('small', null, ' ' + state.hunger) : null),
           hw === '饥荒' ? 'crit' : hw === '饥饿' ? 'warn' : hw === '未记录' ? 'info' : 'ok',
           stepsBar(HUNGER_ZONES, HUNGER_ZONES.indexOf(hw), hw === '饥荒' ? 'critical' : hw === '饥饿' ? 'warning' : 'ok'), 'status'),
-        cell('thirst', '口渴', h('b', null, state.thirst),
+        cell('thirst', U.TC('label', '口渴'), h('b', null, state.thirst),
           thirstIdx >= 2 ? 'crit' : thirstIdx === 1 ? 'warn' : 'ok',
           stepsBar(THIRST, thirstIdx, thirstIdx >= 2 ? 'critical' : thirstIdx === 1 ? 'warning' : 'ok'), 'status'),
         cell('mind', '意识', h('b', null, state.consciousness), state.consciousness === '昏迷' ? 'crit' : 'ok', null, 'status'),
@@ -283,13 +293,15 @@
 
   function tabButton(t) {
     // 手机底栏用短名，平板和电脑用全名
+    // 英文短名另取（Home／Items／Loot），手机底栏 6 格放得下
     return h('button', { type: 'button', class: 'tab ' + (ui.tab === t.id ? 'on' : ''), 'data-tab': t.id, 'aria-current': ui.tab === t.id ? 'page' : null, onclick: function () { setTab(t.id); } },
-      t.full ? [h('span', { class: 'tab-short' }, t.name), h('span', { class: 'tab-full' }, t.full)] : t.name);
+      h('span', { class: 'tab-short' }, U.TC('tab-short', t.name)), h('span', { class: 'tab-full' }, t.full || t.name));
   }
 
   /** 手机：底栏 5 个常用页 +「更多」；平板：顶部一行；电脑：左侧栏。三种布局共用同一组按钮，由 CSS 排布。 */
   function renderTabs() {
     var nav = U.clear(document.getElementById('tabs'));
+    nav.setAttribute('aria-label', U.T('玩家面板'));
     var current = TABS.find(function (t) { return t.id === ui.tab; });
     var inMore = current && !current.primary;
     nav.appendChild(h('div', { class: 'tabs-primary' },
@@ -368,13 +380,13 @@
         sub: '基础战斗力 ' + Math.max(0, hp) + (C.isInt(r.hpMax) ? '' : ' · 生命上限待配置')
       }),
       tile({
-        key: 'hunger', tab: 'status', label: '饥饿', badge: sevBadge(hungerLevel, zone ? '自动' : '手动'),
+        key: 'hunger', tab: 'status', label: U.TC('label', '饥饿'), badge: sevBadge(hungerLevel, zone ? '自动' : '手动'),
         value: hungerWord, unit: C.isNum(state.hunger) ? ' ' + state.hunger : '',
         viz: C.isInt(r.hungerMax) && C.isNum(state.hunger) ? meter(state.hunger, r.hungerMax, hungerLevel, '饥饿值') : null,
         sub: zone ? '按阈值自动判定' : '阈值待配置'
       }),
       tile({
-        key: 'thirst', tab: 'status', label: '口渴', badge: sevBadge(thirstLevel),
+        key: 'thirst', tab: 'status', label: U.TC('label', '口渴'), badge: sevBadge(thirstLevel),
         value: state.thirst, viz: stepsBar(THIRST, thirstIdx, thirstLevel), sub: '补水幅度待定'
       }),
       tile({
@@ -609,7 +621,7 @@
       setValue(n);
     });
     return h('section', { class: 'card' },
-      h('div', { class: 'card-head' }, h('h2', null, '饥饿'), h('span', { class: 'muted small' }, '充盈／普通／饥饿／饥荒')),
+      h('div', { class: 'card-head' }, h('h2', null, U.TC('label', '饥饿')), h('span', { class: 'muted small' }, '充盈／普通／饥饿／饥荒')),
       h('div', { class: 'row' },
         h('button', { type: 'button', class: 'btn', onclick: function () { setValue((state.hunger || 0) - 1); } }, '−1'),
         input,
@@ -1140,7 +1152,7 @@
       var d = existing();
       hint.hidden = !d;
       newFields.hidden = !!d;
-      if (d) hint.textContent = '已有同名物品「' + d.name + '」（' + (d.ruleStatus === 'custom' ? '自定义' : '内置') + '，每件占 ' + C.fmtUnits(d.capacityTicks) + ' 单位）：会按原有定义加入库存。';
+      if (d) hint.textContent = U.T('已有同名物品「' + d.name + '」（' + (d.ruleStatus === 'custom' ? '自定义' : '内置') + '，每件占 ' + C.fmtUnits(d.capacityTicks) + ' 单位）：会按原有定义加入库存。');
     });
     U.modal({
       title: '添加自定义物品',
@@ -1688,7 +1700,7 @@
       var remaining = Math.max(0, round.deadline - Date.now());
       var clock = document.getElementById('scav-clock');
       var bar = document.getElementById('scav-bar');
-      if (clock) clock.textContent = (remaining / 1000).toFixed(1) + ' 秒';
+      if (clock) clock.textContent = U.T((remaining / 1000).toFixed(1) + ' 秒');
       if (bar) bar.style.width = (remaining / (sc.cfg.seconds * 1000)) * 100 + '%';
     }
   }
@@ -2236,6 +2248,8 @@
   function boot() {
     var tab = U.readKey(KEY_TAB);
     tab = TAB_ALIASES[tab] || tab;
+    U.i18n.setLang(U.i18n.getLang());
+    document.title = U.T(PAGE_TITLE);
     if (tab && TABS.some(function (t) { return t.id === tab; })) ui.tab = tab;
     state = loadState();
     // 点击「更多」面板以外的地方时收起

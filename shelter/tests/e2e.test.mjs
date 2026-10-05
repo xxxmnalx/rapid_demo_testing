@@ -990,3 +990,92 @@ test('玩家：添加自定义物品会进库存；再次添加同名物品按�
   assert.deepEqual(errors, []);
   await context.close();
 });
+
+// ---------------------------------------------------------------- 中英文
+
+const HAN = /[一-鿿]/;
+async function leftoverChinese(page) {
+  return page.evaluate((src) => {
+    const han = new RegExp(src);
+    const parts = [document.body.innerText, document.title];
+    document.querySelectorAll('[placeholder],[title],[aria-label]').forEach((e) => {
+      if (e.classList.contains('lang-btn')) return; // 切换按钮本来就显示「中文」
+      parts.push(e.getAttribute('placeholder') || '', e.getAttribute('title') || '', e.getAttribute('aria-label') || '');
+    });
+    document.querySelectorAll('textarea, input[type=text]').forEach((t) => parts.push(t.value));
+    return parts.join('\n').split('\n').filter((l) => han.test(l) && l.trim() !== '中文');
+  }, HAN.source);
+}
+
+test('中英文切换：按钮切换后整页变英文、刷新保持、可切回；存档数据不变', async () => {
+  const { context } = await newContext();
+  const { page, errors } = await open(context, HOST);
+  await hostDemo(page);
+  const before = await read(page, HOST_DEMO);
+  await tab(page, 'flow');
+  await page.locator('.lang-btn').click();
+  await btn(page, 'Start Day 1 →').waitFor();
+  assert.equal(await page.title(), 'Shelter Playtest · Host');
+  assert.equal(await page.evaluate(() => document.documentElement.lang), 'en');
+  await page.reload();
+  assert.ok(await btn(page, 'Start Day 1 →').isVisible(), '刷新后仍是英文');
+  // 英文界面下照样能操作：开始第1天、进入阶段2，存档里的数据格式不变
+  await btn(page, 'Start Day 1 →').click();
+  await modalBtn(page, 'Start');
+  const s = await read(page, HOST_DEMO);
+  assert.equal(s.phase, 'night');
+  assert.deepEqual(s.players.map((p) => p.name), before.players.map((p) => p.name), '已有存档里的名字不被改写');
+  await page.locator('.lang-btn').click();
+  await btn(page, '下一阶段 →').waitFor();
+  assert.equal(await page.title(), '避难所 Playtest · 主持人');
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+test('英文界面：主持人与玩家每一页都没有残留中文（演示存档按英文生成）', async () => {
+  const { context } = await newContext({ init: () => localStorage.setItem('shelter-playtest:lang', 'en') });
+  const { page: host, errors } = await open(context, HOST);
+  await tab(host, 'settings');
+  await btn(host, 'Open demo save').click();
+  await host.waitForFunction((k) => !!localStorage.getItem(k), HOST_DEMO);
+  assert.ok((await read(host, HOST_DEMO)).players.some((p) => p.name === 'B·Jen'), '英文界面下生成的演示存档是英文');
+  await tab(host, 'flow');
+  await btn(host, 'Start Day 1 →').click();
+  await modalBtn(host, 'Start');
+  for (const id of ['flow', 'stage', 'supply', 'watch', 'events', 'records', 'log', 'settings']) {
+    await tab(host, id);
+    const gate = host.locator('[data-gate] button');
+    if (await gate.count()) {
+      await gate.first().click();
+      await host.check('#confirm-share-paused');
+      await modalBtn(host, 'Show');
+    }
+    assert.deepEqual(await leftoverChinese(host), [], 'host ' + id);
+  }
+  const { page: player } = await open(context, PLAYER);
+  await tab(player, 'save');
+  await btn(player, 'Open demo save').click();
+  await player.waitForFunction((k) => !!localStorage.getItem(k), PLAYER_DEMO);
+  for (const id of ['dashboard', 'status', 'inventory', 'scavenge', 'action', 'score', 'save']) {
+    await tab(player, id);
+    assert.deepEqual(await leftoverChinese(player), [], 'player ' + id);
+  }
+  await tab(player, 'inventory');
+  assert.equal((await read(player, PLAYER_DEMO)).thirst, '不渴', '规则用的状态值保持中文，不受界面语言影响');
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+test('入口页：中英文切换，与两个面板共用同一个选择', async () => {
+  const { context } = await newContext();
+  const { page } = await open(context, 'file://' + join(ROOT, 'index.html'));
+  await page.locator('#lang-btn').click();
+  assert.equal(await page.locator('h1').innerText(), 'Shelter Playtest');
+  assert.equal(await page.title(), 'Shelter Playtest');
+  assert.ok(!HAN.test(await page.locator('main').innerText().then((t) => t.replace('中文', ''))), '入口页没有残留中文');
+  const { page: player } = await open(context, PLAYER);
+  assert.equal(await player.title(), 'Shelter Playtest · Player', '玩家页跟随入口页的选择');
+  await page.locator('#lang-btn').click();
+  assert.equal(await page.locator('h1').innerText(), '避难所 Playtest');
+  await context.close();
+});

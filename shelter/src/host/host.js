@@ -104,7 +104,7 @@
     s.events = DEMO_EVENTS.map(demoEvent);
     s.nightLibrary = DEMO_NIGHT.map(demoNight);
     log(s, '载入演示存档（与正式存档完全分开）');
-    return s;
+    return U.localizeDemo(s);
   }
 
   // ================================================================ 存档与提交
@@ -328,6 +328,14 @@
 
   // ================================================================ 渲染：骨架
 
+  var PAGE_TITLE = document.title;
+
+  /** 切换语言：只换显示文字，存档不变；页面标题与 <html lang> 一起换。 */
+  function onLangChange() {
+    document.title = U.T(PAGE_TITLE);
+    render();
+  }
+
   function render() {
     renderBanner();
     renderTop();
@@ -369,7 +377,7 @@
     var last = undo.peek();
     var target = state.rules.rescueTarget;
     top.appendChild(h('div', { class: 'top-main' },
-      h('div', { class: 'brand' }, h('b', null, '避难所 Playtest'), h('span', { class: 'brand-role' }, '主持人')),
+      h('div', { class: 'brand' }, h('b', null, '避难所 Playtest'), h('span', { class: 'brand-role' }, '主持人'), U.langToggle(onLangChange)),
       h('div', { class: 'top-stats' },
         stat('天数', state.started ? '第 ' + state.day + ' 天' : '未开始'),
         stat('阶段', C.phaseLabel(state.phase)),
@@ -390,6 +398,7 @@
 
   function renderTabs() {
     var nav = U.clear(document.getElementById('tabs'));
+    nav.setAttribute('aria-label', U.T('主持人面板'));
     var groups = { public: null, secret: null, setup: null };
     TABS.forEach(function (t) {
       if (!groups[t.group]) {
@@ -452,7 +461,7 @@
   function stageTrack(seq, idx) {
     return h('ol', { class: 'track', 'aria-label': '今天的阶段' }, seq.map(function (ph, i) {
       var st = i < idx ? 'done' : i === idx ? 'on' : 'todo';
-      var no = C.PHASES[ph].no ? String(C.PHASES[ph].no) : '事';
+      var no = C.PHASES[ph].no ? String(C.PHASES[ph].no) : U.TC('phase-no', '事');
       return h('li', { class: 'track-seg ' + st, 'aria-current': st === 'on' ? 'step' : null },
         h('span', { class: 'track-bar' }),
         h('span', { class: 'track-label' }, st === 'done' ? '✓ ' : '', h('span', { class: 'track-no' }, no + ' '), h('span', { class: 'track-name' }, C.PHASES[ph].name)));
@@ -610,7 +619,7 @@
           : h('button', { type: 'button', class: 'btn' + (big ? ' primary' : ''), onclick: timerStart, disabled: remaining <= 0 }, '开始'),
         h('button', { type: 'button', class: 'btn', onclick: timerReset }, '重置')),
       h('div', { class: 'row tight' }, [30, 60, 120, 180, 300].map(function (sec) {
-        return h('button', { type: 'button', class: 'btn small', onclick: function () { timerSet(sec * 1000); } }, sec < 60 ? sec + '秒' : sec / 60 + '分');
+        return h('button', { type: 'button', class: 'btn small', onclick: function () { timerSet(sec * 1000); } }, sec < 60 ? sec + '秒' : sec / 60 + '分钟');
       }), h('button', { type: 'button', class: 'btn small', onclick: timerCustom }, '自定义')));
   }
 
@@ -700,7 +709,7 @@
     return h('section', { class: 'rail-card' },
       h('ol', { class: 'rail', 'aria-label': '每日流程' }, seq.map(function (ph, i) {
         var st = cur < 0 ? 'todo' : i < cur ? 'done' : i === cur ? 'on' : 'todo';
-        var no = ph === 'setup' ? '开' : C.PHASES[ph].no ? String(C.PHASES[ph].no) : '事';
+        var no = ph === 'setup' ? U.TC('phase-no', '开') : C.PHASES[ph].no ? String(C.PHASES[ph].no) : U.TC('phase-no', '事');
         return h('li', { class: 'rail-step ' + st },
           h('button', {
             type: 'button',
@@ -1569,7 +1578,7 @@
     var countLine = h('span', { class: 'muted' });
     function updateCount() {
       var n = Object.keys(chosen).filter(function (k) { return chosen[k]; }).length;
-      countLine.textContent = '将抽取 ' + n + ' 件（按件数，不是单位）。公共池现有 ' + C.countPieces(state.pool) + ' 件。';
+      countLine.textContent = U.T('将抽取 ' + n + ' 件（按件数，不是单位）。公共池现有 ' + C.countPieces(state.pool) + ' 件。');
     }
     updateCount();
     var kindSel = U.select([['daily', '每日补给'], ['opening1', '开局领取第1次'], ['opening2', '开局领取第2次'], ['other', '其他发放']], kind, function (v) { kind = v; });
@@ -1735,7 +1744,7 @@
 
   function openingCard() {
     var op = state.opening;
-    var text = ui.drafts.opening != null ? ui.drafts.opening : C.formatItemList(op.items, state.customItems);
+    var text = ui.drafts.opening != null ? ui.drafts.opening : U.T(C.formatItemList(op.items, state.customItems));
     if (ui.drafts.opening == null) ui.drafts.opening = text;
     return h('section', { class: 'card' },
       h('div', { class: 'card-head' }, h('h2', null, '开局物资'), h('span', { class: 'muted small' }, '主持人自行设计；每名玩家先领取两次')),
@@ -2484,7 +2493,7 @@
 
   function overrideDialog(flow, fx) {
     var rescue = h('input', { type: 'number', value: fx.rescue == null ? '' : fx.rescue, placeholder: '不变' });
-    var pool = h('input', { type: 'text', value: C.formatItemList(fx.pool, state.customItems, true), placeholder: '例如：面包+2，子弹-1' });
+    var pool = h('input', { type: 'text', value: U.T(C.formatItemList(fx.pool, state.customItems, true)), placeholder: '例如：面包+2，子弹-1' });
     U.modal({
       title: '修改本次结算效果',
       body: h('div', { class: 'stack' },
@@ -2710,10 +2719,10 @@
     }
 
     function itemsInput(target, key, placeholder) {
-      var el = h('input', { type: 'text', value: C.formatItemList(target[key] || [], state.customItems, true), placeholder: placeholder });
+      var el = h('input', { type: 'text', value: U.T(C.formatItemList(target[key] || [], state.customItems, true)), placeholder: placeholder });
       el.addEventListener('change', function () {
         var parsed = C.parseItemList(el.value, state.customItems);
-        if (parsed.errors.length) { U.toast(parsed.errors[0], 'warn'); el.value = C.formatItemList(target[key] || [], state.customItems, true); return; }
+        if (parsed.errors.length) { U.toast(parsed.errors[0], 'warn'); el.value = U.T(C.formatItemList(target[key] || [], state.customItems, true)); return; }
         target[key] = parsed.items;
       });
       return el;
@@ -3068,7 +3077,7 @@
   function fmtRule(f, v) {
     if (v == null) return '待配置';
     if (f.type === 'units') return C.fmtUnits(v) + '单位';
-    if (f.type === 'bool') return v ? '开' : '关';
+    if (f.type === 'bool') return v ? U.TC('switch', '开') : U.TC('switch', '关');
     if (f.type === 'select') { var o = f.options.find(function (x) { return x[0] === v; }); return o ? o[1] : v; }
     return String(v);
   }
@@ -3299,6 +3308,8 @@
   function boot() {
     var tab = U.readKey(KEY_TAB);
     if (tab && TABS.some(function (t) { return t.id === tab; })) ui.tab = tab;
+    U.i18n.setLang(U.i18n.getLang());
+    document.title = U.T(PAGE_TITLE);
     state = loadState();
     save();
     render();
