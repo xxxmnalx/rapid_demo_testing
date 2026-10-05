@@ -1285,3 +1285,175 @@ test('一键重置：玩家页、主持人页只删自己的本机数据并重�
   assert.deepEqual([...errors, ...hostErrors], []);
   await context.close();
 });
+
+// ---------------------------------------------------------------- 动画测试版（host-beta.html、player-beta.html、beta.html）
+
+const HOST_BETA = 'file://' + join(ROOT, 'host-beta.html');
+const PLAYER_BETA = 'file://' + join(ROOT, 'player-beta.html');
+const BETA_PLAYER_KEY = 'shelter-playtest-beta:player:v1';
+const BETA_HOST_DEMO = 'shelter-playtest-beta:host-demo:v1';
+const fxHas = (page, name, timeout = 5000) => page.waitForFunction((n) => window.ShelterFX.log.includes(n), name, { timeout });
+
+async function betaPlayer(page, name, others) {
+  await tab(page, 'action');
+  const nameInput = page.locator('.field', { hasText: '姓名' }).locator('input');
+  await nameInput.fill(name);
+  await nameInput.press('Enter');
+  await nameInput.blur();
+  await page.waitForFunction(([k, n]) => (JSON.parse(localStorage.getItem(k)) || {}).name === n, [BETA_PLAYER_KEY, name]);
+  await tab(page, 'save');
+  await page.locator('.roster-card').getByRole('textbox', { name: '其他玩家的名字' }).fill(others.join('，'));
+  await page.locator('.roster-card').getByRole('button', { name: '添加', exact: true }).click();
+  await tab(page, 'action');
+}
+
+test('动画测试版：正式版文件不含动画层；测试版存档与正式版分开，互不影响', async () => {
+  for (const f of ['host.html', 'player.html', 'index.html']) {
+    const html = readFileSync(join(ROOT, f), 'utf8');
+    assert.ok(!html.includes('ShelterFX') && !html.includes('shelter-playtest-beta'), f + ' 不含测试版内容');
+  }
+  for (const f of ['host-beta.html', 'player-beta.html']) {
+    const html = readFileSync(join(ROOT, f), 'utf8');
+    assert.ok(html.includes('window.ShelterFX'), f + ' 带动画层');
+    assert.ok(!/shelter-playtest:(host|player)/.test(html), f + ' 不碰正式版存档');
+  }
+  const { context, external } = await newContext({ viewport: { width: 390, height: 844 } });
+  const { page: stable } = await open(context, PLAYER);
+  await tab(stable, 'action');
+  const stableName = stable.locator('.field', { hasText: '姓名' }).locator('input');
+  await stableName.fill('正式版的我');
+  await stableName.press('Enter');
+  await stableName.blur();
+  await stable.waitForFunction((k) => (JSON.parse(localStorage.getItem(k)) || {}).name === '正式版的我', PLAYER_KEY);
+
+  const { page: beta, errors } = await open(context, PLAYER_BETA);
+  assert.match(await beta.title(), /动画测试版/);
+  await betaPlayer(beta, '测试版的我', ['甲', '乙']);
+  assert.equal((await read(beta, PLAYER_KEY)).name, '正式版的我', '正式版存档没被改动');
+  assert.equal((await read(beta, BETA_PLAYER_KEY)).name, '测试版的我');
+  await stable.reload();
+  await tab(stable, 'action');
+  assert.equal(await stable.locator('.field', { hasText: '姓名' }).locator('input').inputValue(), '正式版的我');
+  assert.equal(await beta.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth), 0, '390px 宽没有横向溢出');
+  assert.deepEqual(errors, []);
+  assert.deepEqual(external, []);
+  await context.close();
+});
+
+test('动画测试版·玩家：点亮行动、发牌翻牌、选中都有动画与音效；设置可关并记住；系统减少动态效果时不翻牌', async () => {
+  const { context } = await newContext({ viewport: { width: 390, height: 844 } });
+  const { page, errors } = await open(context, PLAYER_BETA);
+  await betaPlayer(page, 'B·阿珍', ['A·老陈', 'C·胖虎', 'D·修女', 'E·二狗', 'F·教授']);
+  await page.locator('[data-action="plan"]').click();
+  await fxHas(page, 'light');
+  await btn(page, '确认抽取守夜名单').click();
+  await fxHas(page, 'deal');
+  assert.equal(await page.locator('.watch-section .fx-cardback').count(), 2, '两张牌背朝上发出来');
+  await page.waitForFunction(() => !document.querySelector('.fx-cardback'), null, { timeout: 4000 });
+  await page.waitForFunction(() => ['deal', 'flip'].every((n) => window.ShelterFX.played.includes(n)), null, { timeout: 4000 });
+  await page.locator('.watch-section .wcard').nth(1).click();
+  await fxHas(page, 'select');
+  assert.match(await page.getByRole('textbox', { name: '分享链接' }).inputValue(), /host-beta\.html#watch=[A-Za-z0-9_-]+$/, '测试版的链接打开测试版主持人页');
+
+  // 设置：关掉音效与动画；点面板里的按钮不会把面板关掉；刷新后还记得
+  await page.locator('.fx-pill').click();
+  const panel = page.locator('.fx-panel');
+  await panel.locator('.fx-row', { hasText: '音效' }).getByRole('button', { name: '关', exact: true }).click();
+  await panel.locator('.fx-row', { hasText: '动画' }).getByRole('button', { name: '关', exact: true }).click();
+  assert.ok(await panel.isVisible());
+  await page.keyboard.press('Escape');
+  assert.ok(!(await panel.isVisible()), 'Esc 收起面板');
+  await page.reload();
+  assert.deepEqual(await page.evaluate(() => window.ShelterFX.settings()), { motion: 'off', sound: false, volume: 0.6 });
+  assert.equal(await page.locator('.fx-pill.muted').count(), 1, '静音时图标变灰');
+  assert.deepEqual(errors, []);
+  await context.close();
+
+  // 系统开了「减少动态效果」：照样记效果，但不发牌翻面
+  const rc = await browser.newContext({ viewport: { width: 390, height: 844 }, reducedMotion: 'reduce' });
+  const { page: rp, errors: rerr } = await open(rc, PLAYER_BETA);
+  await betaPlayer(rp, '甲', ['乙', '丙']);
+  await rp.locator('[data-action="plan"]').click();
+  await btn(rp, '确认抽取守夜名单').click();
+  await fxHas(rp, 'deal');
+  assert.equal(await rp.locator('.fx-cardback').count(), 0, '减少动态效果时没有牌背翻面');
+  assert.equal(await rp.evaluate(() => window.ShelterFX.motion()), 'reduce');
+  assert.deepEqual(rerr, []);
+  await rc.close();
+});
+
+test('动画测试版·主持人：新的一天、换阶段、轮换座次、计时最后几秒与时间到都有效果；打开守夜链接只翻牌不出声', async () => {
+  const { context } = await newContext();
+  const { page: host, errors } = await open(context, HOST_BETA);
+  await tab(host, 'settings');
+  await btn(host, '打开演示存档').click();
+  await host.waitForFunction((k) => !!localStorage.getItem(k), BETA_HOST_DEMO);
+  await tab(host, 'flow');
+  await startDay1(host);
+  await fxHas(host, 'dawn');
+  await nextPhase(host); // 2
+  await fxHas(host, 'phase');
+  await nextPhase(host); // 3
+  await nextPhase(host); // 4
+  await btn(host, '执行每日轮换').click();
+  await fxHas(host, 'shuffle');
+
+  // 计时：设 3 秒，最后几秒滴答，到点响铃
+  await tab(host, 'stage');
+  const timer = host.locator('.timer').first();
+  await timer.getByRole('button', { name: '自定义' }).click();
+  await modal(host).locator('input').fill('3');
+  await modalBtn(host, '设定');
+  await timer.getByRole('button', { name: '开始' }).click();
+  await fxHas(host, 'urgent');
+  await fxHas(host, 'alarm', 6000);
+  await host.waitForFunction(() => window.ShelterFX.played.includes('alarm'));
+
+  // 守夜链接：卡片在弹窗里翻出来，但秘密页不出声
+  const link = await host.evaluate(() => {
+    const C = window.ShelterCore;
+    const card = C.makeWatchCardV2(['A·老陈', 'B·阿珍', 'C·胖虎'], () => 0.5, C.defaultRules());
+    return location.href.replace(/[#?].*$/, '') + C.watchLinkHash({ v: 2, day: 1, from: 'B·阿珍', card });
+  });
+  await host.goto(link);
+  await host.check('#confirm-share-paused');
+  const playedBefore = await host.evaluate(() => window.ShelterFX.played.length);
+  const dealsBefore = await host.evaluate(() => window.ShelterFX.log.filter((n) => n === 'deal').length);
+  await modalBtn(host, '查看卡片');
+  await host.waitForFunction((n) => window.ShelterFX.log.filter((x) => x === 'deal').length > n, dealsBefore);
+  await host.waitForTimeout(900);
+  const newSounds = await host.evaluate((n) => window.ShelterFX.played.slice(n), playedBefore);
+  assert.ok(!newSounds.includes('deal') && !newSounds.includes('flip'), '秘密弹窗里翻牌不出声：' + newSounds.join(','));
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+test('动画测试版入口：链接指向测试版页面；一键重置只清测试版数据；英文界面没有残留中文', async () => {
+  const { context } = await newContext();
+  const landing = await context.newPage();
+  await landing.goto('file://' + join(ROOT, 'beta.html'));
+  assert.match(await landing.title(), /动画测试版/);
+  assert.deepEqual(await landing.locator('a[data-page]').evaluateAll((as) => as.map((a) => a.getAttribute('data-page'))), ['host-beta.html', 'player-beta.html']);
+  await landing.evaluate(() => {
+    localStorage.setItem('shelter-playtest:player:v1', '{"keep":true}');
+    localStorage.setItem('shelter-playtest-beta:player:v1', '{"beta":true}');
+    localStorage.setItem('shelter-playtest:lang', 'zh');
+  });
+  landing.on('dialog', (d) => d.accept());
+  await Promise.all([landing.waitForURL(/[?&]fresh=\d+/), landing.locator('#reset-btn').click()]);
+  const left = await landing.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('shelter-playtest')).sort());
+  assert.deepEqual(left, ['shelter-playtest:lang', 'shelter-playtest:player:v1'], '正式版数据与语言选择保留');
+
+  // 英文：入口与设置面板
+  await landing.evaluate(() => localStorage.setItem('shelter-playtest:lang', 'en'));
+  const { page, errors } = await open(context, PLAYER_BETA);
+  assert.match(await page.title(), /FX beta$/);
+  await page.locator('.fx-pill').click();
+  await page.locator('.fx-panel').waitFor();
+  assert.deepEqual(await leftoverChinese(page), [], 'player beta panel');
+  const { page: host } = await open(context, HOST_BETA);
+  await host.locator('.fx-pill').click();
+  assert.deepEqual(await leftoverChinese(host), [], 'host beta panel');
+  assert.deepEqual(errors, []);
+  await context.close();
+});
