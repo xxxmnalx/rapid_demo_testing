@@ -233,6 +233,42 @@ test('主持人隐藏池与候选时，公开页面、通知与日志摘要不�
 
 // ---------------------------------------------------------------- 主持人：完整一回合
 
+test('主持台：默认打开；待办随进度变化并能跳转；公开展示可全屏展示、Esc 退出', async () => {
+  const { context } = await newContext();
+  const { page, errors } = await open(context, HOST);
+  assert.equal(await page.locator('#tabs .tab.on').getAttribute('data-tab'), 'flow', '默认是主持台');
+  const todo = page.locator('section.todo');
+  assert.match(await todo.innerText(), /还没有登记玩家/);
+  await todo.locator('li', { hasText: '还没有登记玩家' }).getByRole('button').click();
+  assert.equal(await page.locator('#tabs .tab.on').getAttribute('data-tab'), 'settings', '待办链接跳到对应页');
+
+  await btn(page, '打开演示存档').click();
+  await page.waitForFunction((k) => !!localStorage.getItem(k), HOST_DEMO);
+  await tab(page, 'flow');
+  await startDay1(page);
+  await nextPhase(page); // 阶段2
+  await nextPhase(page); // 阶段3
+  await nextPhase(page); // 阶段4
+  assert.match(await todo.innerText(), /今日尚未轮换/);
+  assert.equal(await page.locator('.rail-step.on .rail-name').innerText(), '每日轮换', '阶段轨标出当前阶段');
+  await btn(page, '执行每日轮换').click();
+  assert.ok(!(await todo.innerText()).includes('今日尚未轮换'), '处理完就从待办里消失');
+  await page.getByRole('button', { name: '进入「个人行动」' }).click();
+  assert.equal((await read(page, HOST_DEMO)).phase, 'actions', '卡片底部的下一步与顶栏是同一个动作');
+  assert.match(await todo.innerText(), /轮到 F·教授 行动（还剩 6 人）/);
+
+  await tab(page, 'stage');
+  assert.equal(await page.locator('.focus-name').innerText(), 'F·教授', '公开展示突出「轮到谁」');
+  await btn(page, '全屏展示').click();
+  assert.ok(await page.evaluate(() => document.body.classList.contains('presenting')));
+  assert.ok(!(await page.locator('#topbar').isVisible()) && !(await page.locator('#tabs').isVisible()), '全屏展示隐藏主持人工具栏');
+  await page.keyboard.press('Escape');
+  await page.locator('#topbar').waitFor();
+  assert.ok(!(await page.evaluate(() => document.body.classList.contains('presenting'))));
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
 test('主持人：用演示存档完整走一回合（发放、轮换、换位、守夜、事件、次日公布）', async () => {
   const { context } = await newContext();
   const { page, errors } = await open(context, HOST);
@@ -837,5 +873,37 @@ test('响应式布局：手机底栏＋更多、平板顶栏、电脑侧栏与�
     await page.setViewportSize({ width: w, height: 900 });
     assert.ok((await page.evaluate(() => document.documentElement.scrollWidth)) <= w, w + 'px 无横向溢出');
   }
+  await context.close();
+});
+
+test('玩家：添加自定义物品会进库存；再次添加同名物品按原定义叠加，不报重复', async () => {
+  const { context } = await newContext({ viewport: { width: 390, height: 844 } });
+  const { page, errors } = await open(context, PLAYER);
+  await tab(page, 'inventory');
+  const addCustom = async (name, qty) => {
+    await btn(page, '添加自定义物品').click();
+    await modal(page).locator('input[placeholder="物品名称"]').fill(name);
+    await modal(page).locator('.field', { hasText: '数量（件）' }).locator('input').fill(String(qty));
+    await modalBtn(page, '加入库存');
+  };
+  await addCustom('收音机', 2);
+  let s = await read(page, PLAYER_KEY);
+  assert.equal(s.customItems.length, 1);
+  const radio = s.customItems[0];
+  assert.equal(s.inventory.find((e) => e.defId === radio.id).qty, 2, '创建后直接进库存');
+  await page.locator(`[data-def="${radio.id}"]`).waitFor();
+  await addCustom('收音机', 1);
+  s = await read(page, PLAYER_KEY);
+  assert.equal(s.customItems.length, 1, '同名不重复登记');
+  assert.equal(s.inventory.find((e) => e.defId === radio.id).qty, 3, '按原定义叠加');
+  // 和内置物品同名：直接加入内置物品
+  await btn(page, '添加自定义物品').click();
+  await modal(page).locator('input[placeholder="物品名称"]').fill('面包');
+  await modal(page).getByText('已有同名物品「面包」').waitFor();
+  await modalBtn(page, '加入库存');
+  s = await read(page, PLAYER_KEY);
+  assert.equal(s.inventory.find((e) => e.defId === 'bread').qty, 1);
+  assert.equal(s.customItems.length, 1);
+  assert.deepEqual(errors, []);
   await context.close();
 });

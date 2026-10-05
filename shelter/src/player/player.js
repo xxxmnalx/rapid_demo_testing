@@ -294,31 +294,13 @@
 
   // ================================================================ 总览
 
-  /* 状态一律「图标形状＋文字＋颜色」三重编码：橙与红在色觉差异下难以区分，颜色从不单独表达含义。 */
-  var SEV = {
-    ok: { cls: 'ok', icon: 'check', word: '正常' },
-    info: { cls: 'info', icon: 'info', word: '提示' },
-    warning: { cls: 'warn', icon: 'warn', word: '注意' },
-    critical: { cls: 'crit', icon: 'stop', word: '危险' }
-  };
-
-  function sevBadge(level, word) {
-    var sv = SEV[level] || SEV.info;
-    return h('span', { class: 'sev sev-' + sv.cls }, U.icon(sv.icon), word || sv.word);
-  }
-
-  /** 进度条：填充色表示严重度，轨道是同一色相的浅色阶。 */
-  function meter(value, max, level, label) {
-    var pct = max > 0 ? Math.max(0, Math.min(100, (value / max) * 100)) : 0;
-    return h('span', {
-      class: 'meter2 m-' + (SEV[level] || SEV.ok).cls, role: 'meter', 'aria-label': label,
-      'aria-valuemin': '0', 'aria-valuemax': String(max), 'aria-valuenow': String(value)
-    }, h('span', { class: 'meter2-fill', style: 'width:' + pct + '%' }));
-  }
+  var sevBadge = U.sevBadge;
+  var meter = U.meter;
 
   /** 分级条：三档状态（如口渴）按档位填充，2px 间隔分开。 */
   function stepsBar(names, index, level) {
-    return h('span', { class: 'steps m-' + (SEV[level] || SEV.ok).cls, 'aria-hidden': 'true' },
+    var cls = { ok: 'ok', info: 'info', warning: 'warn', critical: 'crit' }[level] || 'ok';
+    return h('span', { class: 'steps m-' + cls, 'aria-hidden': 'true' },
       names.map(function (n, i) { return h('span', { class: 'step' + (i <= index ? ' on' : '') }); }));
   }
 
@@ -332,11 +314,7 @@
   }
 
   function tile(o) {
-    return h('button', { type: 'button', class: 'tile ' + (o.cls || ''), 'data-tile': o.key, onclick: function () { setTab(o.tab); } },
-      h('span', { class: 'tile-head' }, h('span', { class: 'tile-label' }, o.label), o.badge || null),
-      h('span', { class: 'tile-value' }, o.value, o.unit ? h('span', { class: 'tile-unit' }, o.unit) : null),
-      o.viz || null,
-      o.sub ? h('span', { class: 'tile-sub' }, o.sub) : null);
+    return U.statTile(Object.assign({ onclick: function () { setTab(o.tab); } }, o));
   }
 
   function renderDashboard() {
@@ -798,7 +776,7 @@
         })),
         h('div', { class: 'row' },
           h('button', { type: 'button', class: 'btn primary', onclick: addItemDialog }, '+ 添加物品'),
-          h('button', { type: 'button', class: 'btn', onclick: customItemDialog }, '新建自定义物品'))),
+          h('button', { type: 'button', class: 'btn', onclick: customItemDialog }, '添加自定义物品'))),
       list.length ? list.map(itemCard) : h('p', { class: 'empty card' }, state.inventory.length ? '这个分类下没有物品。' : '库存是空的。主持人发放物资后，请在这里手动添加。'));
   }
 
@@ -895,27 +873,55 @@
     });
   }
 
+  /**
+   * 添加自定义物品：新名字＝登记定义并加入库存；已有同名物品＝直接按原有定义加入库存，
+   * 不会重复登记，也不会因为同名报错。
+   */
   function customItemDialog() {
     var nameI = h('input', { type: 'text', placeholder: '物品名称', autofocus: true });
     var catSel = U.select(C.CATEGORIES.map(function (c) { return [c.id, c.name]; }), 'custom', function () {});
     var units = h('input', { type: 'number', class: 'num', min: 0, step: 0.5, value: 0.5 });
     var effect = h('input', { type: 'text', placeholder: '效果（按主持人说明）' });
+    var qty = h('input', { type: 'number', class: 'num', min: 1, value: 1 });
+    var remark = h('input', { type: 'text', placeholder: '可选' });
+    var hint = h('p', { class: 'callout info small', hidden: true });
+    var newFields = h('div', { class: 'stack' }, U.field('分类', catSel), U.field('占位（单位）', units), U.field('效果', effect));
+    function existing() { return C.findDefByName(nameI.value.trim(), state.customItems); }
+    nameI.addEventListener('input', function () {
+      var d = existing();
+      hint.hidden = !d;
+      newFields.hidden = !!d;
+      if (d) hint.textContent = '已有同名物品「' + d.name + '」（' + (d.ruleStatus === 'custom' ? '自定义' : '内置') + '，每件占 ' + C.fmtUnits(d.capacityTicks) + ' 单位）：会按原有定义加入库存。';
+    });
     U.modal({
-      title: '新建自定义物品',
-      body: h('div', { class: 'stack' }, U.field('名称', nameI), U.field('分类', catSel), U.field('占位（单位）', units), U.field('效果', effect),
+      title: '添加自定义物品',
+      body: h('div', { class: 'stack' }, U.field('名称', nameI), hint, newFields,
+        h('div', { class: 'grid2' }, U.field('数量（件）', qty), U.field('备注', remark)),
         h('p', { class: 'muted small' }, '主持人也可以把自定义物品放进规则包，你在「存档」页导入即可。')),
-      actions: [{ label: '取消', value: false }, { label: '创建', kind: 'primary', value: true }]
+      actions: [{ label: '取消', value: false }, { label: '加入库存', kind: 'primary', value: true }]
     }).then(function (ok) {
       if (!ok) return;
+      var name = nameI.value.trim();
+      var count = parseInt(qty.value, 10);
       var n = U.parseNumber(units.value, true);
-      if (!nameI.value.trim()) { U.toast('请输入名称', 'warn'); return; }
-      if (n == null || Number.isNaN(n) || n < 0 || Math.round(n * 2) !== n * 2) { U.toast('占位需为 0.5 的倍数', 'warn'); return; }
-      if (C.findDefByName(nameI.value.trim(), state.customItems)) { U.toast('已有同名物品', 'warn'); return; }
-      commit('新建自定义物品', function (s) {
-        var d = C.newCustomItem({ name: nameI.value, category: catSel.value, capacityTicks: Math.round(n * 2), effectText: effect.value });
-        s.customItems.push(d);
-        log(s, '新建自定义物品：' + d.name);
+      var found = existing();
+      if (!name) { U.toast('请输入名称', 'warn'); return; }
+      if (!(count > 0)) { U.toast('数量必须是正整数', 'warn'); return; }
+      if (!found && (n == null || Number.isNaN(n) || n < 0 || Math.round(n * 2) !== n * 2)) { U.toast('占位需为 0.5 的倍数', 'warn'); return; }
+      var note = remark.value.trim() || undefined;
+      commit('添加自定义物品', function (s) {
+        var def = found;
+        if (!def) {
+          def = C.newCustomItem({ name: name, category: catSel.value, capacityTicks: Math.round(n * 2), effectText: effect.value });
+          s.customItems.push(def);
+          log(s, '新建自定义物品：' + def.name + '（每件占 ' + C.fmtUnits(def.capacityTicks) + ' 单位）');
+        }
+        C.addItem(s.inventory, def.id, count, { customItems: s.customItems, rules: s.rules, remark: note });
+        log(s, '添加物品：' + def.name + '×' + count + (note ? '（' + note + '）' : ''));
       });
+      U.toast(found ? '已按原有的「' + found.name + '」加入库存 ×' + count : '已创建并加入库存：' + name + ' ×' + count, 'ok');
+      ui.filter = 'all';
+      render();
     });
   }
 

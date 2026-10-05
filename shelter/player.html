@@ -232,6 +232,36 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14.5px; }
   .grid2, .grid3 { grid-template-columns: minmax(0, 1fr); }
   .card { padding: 13px; }
 }
+
+/* ---------- 仪表盘部件：指标卡、状态徽章（图标＋文字＋颜色）、同色相进度条 ---------- */
+.tile {
+  display: flex; flex-direction: column; gap: 6px; min-width: 0; text-align: left; cursor: pointer;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; box-shadow: var(--shadow);
+  font: inherit; color: inherit;
+}
+.tile:hover { border-color: var(--line-strong); }
+.tile:focus-visible { outline: 3px solid rgba(15, 110, 102, 0.35); outline-offset: 1px; }
+.tile-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; flex-wrap: wrap; }
+.tile-label { font-size: 13.5px; color: var(--ink-2); }
+.tile-value { font-size: 24px; font-weight: 650; line-height: 1.2; color: var(--ink); overflow-wrap: anywhere; }
+.tile-unit { font-size: 14px; font-weight: 500; color: var(--muted); margin-left: 2px; }
+.tile-sub { font-size: 12.5px; color: var(--muted); line-height: 1.45; }
+
+/* 状态徽章：图标形状 + 文字 + 颜色 */
+.sev { display: inline-flex; align-items: center; gap: 4px; font-size: 12.5px; font-weight: 600; line-height: 1; padding: 4px 8px 4px 6px; border-radius: 999px; white-space: nowrap; }
+.sev .icon svg { width: 14px; height: 14px; }
+.sev-ok { background: var(--teal-soft); color: var(--teal-strong); }
+.sev-info { background: var(--surface-2); color: var(--ink-2); }
+.sev-warn { background: var(--orange-soft); color: #8a3f08; }
+.sev-crit { background: var(--red-soft); color: var(--red); }
+
+/* 进度条：同一色相，轨道取浅色阶 */
+.meter2 { display: block; height: 8px; border-radius: 4px; overflow: hidden; }
+.meter2-fill { display: block; height: 100%; border-radius: 0 4px 4px 0; }
+.m-ok { background: var(--teal-soft); } .m-ok .meter2-fill { background: var(--teal); }
+.m-warn { background: var(--orange-soft); } .m-warn .meter2-fill { background: var(--orange); }
+.m-crit { background: var(--red-soft); } .m-crit .meter2-fill { background: var(--red); }
+.m-info { background: var(--surface-3); } .m-info .meter2-fill { background: var(--muted); }
 </style>
 <style>
 /* src/player/player.css */
@@ -320,37 +350,9 @@ body.player { min-width: 300px; }
 .dash { display: flex; flex-direction: column; gap: 14px; }
 
 .vitals { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-.tile {
-  display: flex; flex-direction: column; gap: 6px; min-width: 0; text-align: left; cursor: pointer;
-  background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; box-shadow: var(--shadow);
-  font: inherit; color: inherit;
-}
-.tile:hover { border-color: var(--line-strong); }
-.tile:focus-visible { outline: 3px solid rgba(15, 110, 102, 0.35); outline-offset: 1px; }
-.tile-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; flex-wrap: wrap; }
-.tile-label { font-size: 13.5px; color: var(--ink-2); }
-.tile-value { font-size: 24px; font-weight: 650; line-height: 1.2; color: var(--ink); overflow-wrap: anywhere; }
-.tile-unit { font-size: 14px; font-weight: 500; color: var(--muted); margin-left: 2px; }
-.tile-sub { font-size: 12.5px; color: var(--muted); line-height: 1.45; }
 .tile.hero { grid-column: 1 / -1; padding: 16px 18px; }
 .tile.hero .tile-value { font-size: 56px; line-height: 1; }
 .tile.hero .tile-label { font-size: 15px; }
-
-/* 状态徽章：图标形状 + 文字 + 颜色 */
-.sev { display: inline-flex; align-items: center; gap: 4px; font-size: 12.5px; font-weight: 600; line-height: 1; padding: 4px 8px 4px 6px; border-radius: 999px; white-space: nowrap; }
-.sev .icon svg { width: 14px; height: 14px; }
-.sev-ok { background: var(--teal-soft); color: var(--teal-strong); }
-.sev-info { background: var(--surface-2); color: var(--ink-2); }
-.sev-warn { background: var(--orange-soft); color: #8a3f08; }
-.sev-crit { background: var(--red-soft); color: var(--red); }
-
-/* 进度条：同一色相，轨道取浅色阶 */
-.meter2 { display: block; height: 8px; border-radius: 4px; overflow: hidden; }
-.meter2-fill { display: block; height: 100%; border-radius: 0 4px 4px 0; }
-.m-ok { background: var(--teal-soft); } .m-ok .meter2-fill { background: var(--teal); }
-.m-warn { background: var(--orange-soft); } .m-warn .meter2-fill { background: var(--orange); }
-.m-crit { background: var(--red-soft); } .m-crit .meter2-fill { background: var(--red); }
-.m-info { background: var(--surface-3); } .m-info .meter2-fill { background: var(--muted); }
 
 .steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2px; height: 8px; }
 .steps .step { border-radius: 2px; }
@@ -1775,6 +1777,84 @@ details.card > summary { cursor: pointer; }
     return out.sort(function (a, b) { return ALERT_ORDER[a.level] - ALERT_ORDER[b.level]; });
   }
 
+  /**
+   * 主持台的待办：只看已经记录下来的进度，不推导新规则。
+   * 主持台可以屏幕共享，所以文字只用公开信息（人名、件数、份数），绝不带物品、候选或事件内容。
+   * level 同 playerAlerts；tab: 去哪一页处理（'flow' 表示就在主持台的当前阶段卡里）。
+   */
+  function hostAlerts(s) {
+    var out = [];
+    var t = s.today;
+    var r = s.rules;
+    function nameOf(id) {
+      var p = s.players.filter(function (x) { return x.id === id; })[0];
+      return p ? p.name : '（已移除）';
+    }
+    var alive = s.players.filter(function (p) { return p.alive !== false; });
+    var aliveIds = alive.map(function (p) { return p.id; });
+
+    if (!s.players.length) out.push({ level: 'critical', text: '还没有登记玩家', tab: 'settings' });
+    if (!s.started && s.players.length) {
+      var done = s.opening.done.filter(Boolean).length;
+      if (done < 2) out.push({ level: 'warning', text: '开局领取完成 ' + done + '／2 次', tab: 'supply' });
+    }
+    var unseated = alive.filter(function (p) { return s.seatOrder.indexOf(p.id) < 0; });
+    if (unseated.length) out.push({ level: 'warning', text: '不在座次：' + unseated.map(function (p) { return p.name; }).join('、'), tab: 'flow' });
+    var deadSeated = s.seatOrder.filter(function (id) { return aliveIds.indexOf(id) < 0; });
+    if (deadSeated.length) out.push({ level: 'info', text: '已死亡仍在座次：' + deadSeated.map(nameOf).join('、') + '（是否移出由主持人决定）', tab: 'flow' });
+
+    var night = s.pendingNightResult;
+    if (s.started && night && night.publishedDay == null && s.day > night.day) {
+      out.push({ level: 'warning', text: s.phase === 'night' ? '有一条昨夜结果待公布' : '昨夜结果还没有公布', tab: 'flow' });
+    }
+
+    s.batches.forEach(function (b) {
+      if (b.status !== 'open') return;
+      var left = b.pickOrder.filter(function (id) { return !b.picks.some(function (p) { return p.playerId === id; }); });
+      out.push(left.length
+        ? { level: 'warning', text: '「' + b.label + '」还有 ' + left.length + ' 人未领取', tab: 'supply' }
+        : { level: 'info', text: '「' + b.label + '」已全部领取，可以结束批次', tab: 'supply' });
+    });
+
+    if (s.started) {
+      if (s.phase === 'supply' && !t.batchIds.length) out.push({ level: 'info', text: '今天还没有发放批次', tab: 'supply' });
+      if (s.phase === 'rotation' && !t.rotationDone) out.push({ level: 'warning', text: '今日尚未轮换', tab: 'flow' });
+      if (s.phase === 'actions') {
+        if (!t.actionOrder) {
+          out.push({ level: 'warning', text: '尚未生成本轮行动顺序', tab: 'flow' });
+        } else {
+          var left = t.actionOrder.filter(function (id) { return t.actedIds.indexOf(id) < 0 && aliveIds.indexOf(id) >= 0; });
+          if (left.length) out.push({ level: 'info', text: '轮到 ' + nameOf(left[0]) + ' 行动（还剩 ' + left.length + ' 人）', tab: 'flow' });
+        }
+      }
+      if (s.phase === 'watch' || (t.finalWatch && s.phase === 'event')) {
+        if (!t.finalWatch) {
+          out.push({ level: 'warning', text: '守夜名单未确认（已收到 ' + submittedCandidates(t).length + ' 份提交）', tab: 'watch' });
+        } else {
+          if (!t.finalWatch.published) out.push({ level: 'info', text: '守夜名单已确认，尚未公开', tab: 'watch' });
+          if (!(night && night.day === s.day)) out.push({ level: 'info', text: '今晚的守夜结果还没有保存为草稿', tab: 'watch' });
+        }
+      }
+      var eventDue = s.phase === 'event' || (r.eventPosition == null && (t.eventCheck || t.eventFlow));
+      if (eventDue) {
+        var flow = t.eventFlow;
+        var res = flow && flow.resolutionId ? s.resolutions.filter(function (x) { return x.id === flow.resolutionId; })[0] : null;
+        if (!t.eventCheck && !flow) out.push({ level: 'warning', text: '今日事件尚未判定', tab: 'events' });
+        else if (t.eventCheck && t.eventCheck.triggered && !flow) out.push({ level: 'warning', text: '今日触发了公共事件，尚未选择事件', tab: 'events' });
+        else if (flow && !flow.published && !res) out.push({ level: 'warning', text: '事件已选定，尚未公布到公开页', tab: 'events' });
+        else if (flow && !res) out.push({ level: 'warning', text: '事件已公布，等待录入投票并结算', tab: 'events' });
+        else if (res && !res.public) out.push({ level: 'info', text: '事件已结算，结果尚未公开', tab: 'events' });
+      }
+    }
+
+    if (isInt(r.rescueTarget) && s.rescueProgress >= r.rescueTarget && !s.settlement) {
+      out.push({ level: 'warning', text: '营救进度已达阈值 ' + r.rescueTarget + '：何时结算由主持人决定', tab: 'records' });
+    }
+    var pending = pendingConfigItems(r).length;
+    if (pending) out.push({ level: 'info', text: '规则配置未完成 ' + pending + ' 项', tab: 'settings' });
+    return out.sort(function (a, b) { return ALERT_ORDER[a.level] - ALERT_ORDER[b.level]; });
+  }
+
   /** 按分类汇总库存占位（总览的「占位构成」）。只返回有物品的分类，保持分类表顺序。 */
   function capacityByCategory(list, customItems, rules) {
     return CATEGORIES.map(function (cat) {
@@ -2205,6 +2285,7 @@ details.card > summary { cursor: pointer; }
     combatSummary: combatSummary,
     loadoutTicks: loadoutTicks,
     playerAlerts: playerAlerts,
+    hostAlerts: hostAlerts,
     capacityByCategory: capacityByCategory,
     defaultScavengeTemplate: defaultScavengeTemplate,
     generateCombo: generateCombo,
@@ -2280,6 +2361,8 @@ details.card > summary { cursor: pointer; }
     stop: '<path d="M8.3 3h7.4L21 8.3v7.4L15.7 21H8.3L3 15.7V8.3z"/><path d="M12 7.5v5.5M12 16.5v.5"/>',
     info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/>',
     arrow: '<path d="M5 12h14M13 6l6 6-6 6"/>',
+    expand: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
+    exitFull: '<path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/>',
     timer: '<circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2.5M9 2h6"/>',
     plus: '<path d="M12 5v14M5 12h14"/>',
     minus: '<path d="M5 12h14"/>',
@@ -2628,7 +2711,43 @@ details.card > summary { cursor: pointer; }
       h('button', { type: 'button', class: 'btn icon-btn', 'aria-label': '增加', onclick: function () { onchange((value || 0) + (opts.delta || 1)); } }, icon('plus')));
   }
 
+  // ---------------------------------------------------------------- 仪表盘部件（主持人与玩家共用）
+
+  /* 状态一律「图标形状＋文字＋颜色」三重编码：橙与红在色觉差异下难以区分，颜色从不单独表达含义。 */
+  var SEV = {
+    ok: { cls: 'ok', icon: 'check', word: '正常' },
+    info: { cls: 'info', icon: 'info', word: '提示' },
+    warning: { cls: 'warn', icon: 'warn', word: '注意' },
+    critical: { cls: 'crit', icon: 'stop', word: '危险' }
+  };
+
+  function sevBadge(level, word) {
+    var sv = SEV[level] || SEV.info;
+    return h('span', { class: 'sev sev-' + sv.cls }, icon(sv.icon), word || sv.word);
+  }
+
+  /** 进度条：填充色表示严重度，轨道是同一色相的浅色阶。 */
+  function meter(value, max, level, label) {
+    var pct = max > 0 ? Math.max(0, Math.min(100, (value / max) * 100)) : 0;
+    return h('span', {
+      class: 'meter2 m-' + (SEV[level] || SEV.ok).cls, role: 'meter', 'aria-label': label,
+      'aria-valuemin': '0', 'aria-valuemax': String(max), 'aria-valuenow': String(value)
+    }, h('span', { class: 'meter2-fill', style: 'width:' + pct + '%' }));
+  }
+
+  /** 指标卡：标签 · 状态徽章 · 数值（＋单位）· 可视化 · 说明。整张卡可点击跳转。 */
+  function statTile(o) {
+    return h(o.onclick ? 'button' : 'div', { type: o.onclick ? 'button' : null, class: 'tile ' + (o.cls || ''), 'data-tile': o.key, onclick: o.onclick || null },
+      h('span', { class: 'tile-head' }, h('span', { class: 'tile-label' }, o.label), o.badge || null),
+      h('span', { class: 'tile-value' }, o.value, o.unit ? h('span', { class: 'tile-unit' }, o.unit) : null),
+      o.viz || null,
+      o.sub ? h('span', { class: 'tile-sub' }, o.sub) : null);
+  }
+
   root.ShelterUI = {
+    sevBadge: sevBadge,
+    meter: meter,
+    statTile: statTile,
     h: h,
     clear: clear,
     icon: icon,
@@ -2955,31 +3074,13 @@ details.card > summary { cursor: pointer; }
 
   // ================================================================ 总览
 
-  /* 状态一律「图标形状＋文字＋颜色」三重编码：橙与红在色觉差异下难以区分，颜色从不单独表达含义。 */
-  var SEV = {
-    ok: { cls: 'ok', icon: 'check', word: '正常' },
-    info: { cls: 'info', icon: 'info', word: '提示' },
-    warning: { cls: 'warn', icon: 'warn', word: '注意' },
-    critical: { cls: 'crit', icon: 'stop', word: '危险' }
-  };
-
-  function sevBadge(level, word) {
-    var sv = SEV[level] || SEV.info;
-    return h('span', { class: 'sev sev-' + sv.cls }, U.icon(sv.icon), word || sv.word);
-  }
-
-  /** 进度条：填充色表示严重度，轨道是同一色相的浅色阶。 */
-  function meter(value, max, level, label) {
-    var pct = max > 0 ? Math.max(0, Math.min(100, (value / max) * 100)) : 0;
-    return h('span', {
-      class: 'meter2 m-' + (SEV[level] || SEV.ok).cls, role: 'meter', 'aria-label': label,
-      'aria-valuemin': '0', 'aria-valuemax': String(max), 'aria-valuenow': String(value)
-    }, h('span', { class: 'meter2-fill', style: 'width:' + pct + '%' }));
-  }
+  var sevBadge = U.sevBadge;
+  var meter = U.meter;
 
   /** 分级条：三档状态（如口渴）按档位填充，2px 间隔分开。 */
   function stepsBar(names, index, level) {
-    return h('span', { class: 'steps m-' + (SEV[level] || SEV.ok).cls, 'aria-hidden': 'true' },
+    var cls = { ok: 'ok', info: 'info', warning: 'warn', critical: 'crit' }[level] || 'ok';
+    return h('span', { class: 'steps m-' + cls, 'aria-hidden': 'true' },
       names.map(function (n, i) { return h('span', { class: 'step' + (i <= index ? ' on' : '') }); }));
   }
 
@@ -2993,11 +3094,7 @@ details.card > summary { cursor: pointer; }
   }
 
   function tile(o) {
-    return h('button', { type: 'button', class: 'tile ' + (o.cls || ''), 'data-tile': o.key, onclick: function () { setTab(o.tab); } },
-      h('span', { class: 'tile-head' }, h('span', { class: 'tile-label' }, o.label), o.badge || null),
-      h('span', { class: 'tile-value' }, o.value, o.unit ? h('span', { class: 'tile-unit' }, o.unit) : null),
-      o.viz || null,
-      o.sub ? h('span', { class: 'tile-sub' }, o.sub) : null);
+    return U.statTile(Object.assign({ onclick: function () { setTab(o.tab); } }, o));
   }
 
   function renderDashboard() {
@@ -3459,7 +3556,7 @@ details.card > summary { cursor: pointer; }
         })),
         h('div', { class: 'row' },
           h('button', { type: 'button', class: 'btn primary', onclick: addItemDialog }, '+ 添加物品'),
-          h('button', { type: 'button', class: 'btn', onclick: customItemDialog }, '新建自定义物品'))),
+          h('button', { type: 'button', class: 'btn', onclick: customItemDialog }, '添加自定义物品'))),
       list.length ? list.map(itemCard) : h('p', { class: 'empty card' }, state.inventory.length ? '这个分类下没有物品。' : '库存是空的。主持人发放物资后，请在这里手动添加。'));
   }
 
@@ -3556,27 +3653,55 @@ details.card > summary { cursor: pointer; }
     });
   }
 
+  /**
+   * 添加自定义物品：新名字＝登记定义并加入库存；已有同名物品＝直接按原有定义加入库存，
+   * 不会重复登记，也不会因为同名报错。
+   */
   function customItemDialog() {
     var nameI = h('input', { type: 'text', placeholder: '物品名称', autofocus: true });
     var catSel = U.select(C.CATEGORIES.map(function (c) { return [c.id, c.name]; }), 'custom', function () {});
     var units = h('input', { type: 'number', class: 'num', min: 0, step: 0.5, value: 0.5 });
     var effect = h('input', { type: 'text', placeholder: '效果（按主持人说明）' });
+    var qty = h('input', { type: 'number', class: 'num', min: 1, value: 1 });
+    var remark = h('input', { type: 'text', placeholder: '可选' });
+    var hint = h('p', { class: 'callout info small', hidden: true });
+    var newFields = h('div', { class: 'stack' }, U.field('分类', catSel), U.field('占位（单位）', units), U.field('效果', effect));
+    function existing() { return C.findDefByName(nameI.value.trim(), state.customItems); }
+    nameI.addEventListener('input', function () {
+      var d = existing();
+      hint.hidden = !d;
+      newFields.hidden = !!d;
+      if (d) hint.textContent = '已有同名物品「' + d.name + '」（' + (d.ruleStatus === 'custom' ? '自定义' : '内置') + '，每件占 ' + C.fmtUnits(d.capacityTicks) + ' 单位）：会按原有定义加入库存。';
+    });
     U.modal({
-      title: '新建自定义物品',
-      body: h('div', { class: 'stack' }, U.field('名称', nameI), U.field('分类', catSel), U.field('占位（单位）', units), U.field('效果', effect),
+      title: '添加自定义物品',
+      body: h('div', { class: 'stack' }, U.field('名称', nameI), hint, newFields,
+        h('div', { class: 'grid2' }, U.field('数量（件）', qty), U.field('备注', remark)),
         h('p', { class: 'muted small' }, '主持人也可以把自定义物品放进规则包，你在「存档」页导入即可。')),
-      actions: [{ label: '取消', value: false }, { label: '创建', kind: 'primary', value: true }]
+      actions: [{ label: '取消', value: false }, { label: '加入库存', kind: 'primary', value: true }]
     }).then(function (ok) {
       if (!ok) return;
+      var name = nameI.value.trim();
+      var count = parseInt(qty.value, 10);
       var n = U.parseNumber(units.value, true);
-      if (!nameI.value.trim()) { U.toast('请输入名称', 'warn'); return; }
-      if (n == null || Number.isNaN(n) || n < 0 || Math.round(n * 2) !== n * 2) { U.toast('占位需为 0.5 的倍数', 'warn'); return; }
-      if (C.findDefByName(nameI.value.trim(), state.customItems)) { U.toast('已有同名物品', 'warn'); return; }
-      commit('新建自定义物品', function (s) {
-        var d = C.newCustomItem({ name: nameI.value, category: catSel.value, capacityTicks: Math.round(n * 2), effectText: effect.value });
-        s.customItems.push(d);
-        log(s, '新建自定义物品：' + d.name);
+      var found = existing();
+      if (!name) { U.toast('请输入名称', 'warn'); return; }
+      if (!(count > 0)) { U.toast('数量必须是正整数', 'warn'); return; }
+      if (!found && (n == null || Number.isNaN(n) || n < 0 || Math.round(n * 2) !== n * 2)) { U.toast('占位需为 0.5 的倍数', 'warn'); return; }
+      var note = remark.value.trim() || undefined;
+      commit('添加自定义物品', function (s) {
+        var def = found;
+        if (!def) {
+          def = C.newCustomItem({ name: name, category: catSel.value, capacityTicks: Math.round(n * 2), effectText: effect.value });
+          s.customItems.push(def);
+          log(s, '新建自定义物品：' + def.name + '（每件占 ' + C.fmtUnits(def.capacityTicks) + ' 单位）');
+        }
+        C.addItem(s.inventory, def.id, count, { customItems: s.customItems, rules: s.rules, remark: note });
+        log(s, '添加物品：' + def.name + '×' + count + (note ? '（' + note + '）' : ''));
       });
+      U.toast(found ? '已按原有的「' + found.name + '」加入库存 ×' + count : '已创建并加入库存：' + name + ' ×' + count, 'ok');
+      ui.filter = 'all';
+      render();
     });
   }
 
