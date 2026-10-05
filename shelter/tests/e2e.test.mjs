@@ -1286,64 +1286,27 @@ test('一键重置：玩家页、主持人页只删自己的本机数据并重�
   await context.close();
 });
 
-// ---------------------------------------------------------------- 动画测试版（host-beta.html、player-beta.html、beta.html）
+// ---------------------------------------------------------------- 动画与音效（src/fx/）
 
-const HOST_BETA = 'file://' + join(ROOT, 'host-beta.html');
-const PLAYER_BETA = 'file://' + join(ROOT, 'player-beta.html');
-const BETA_PLAYER_KEY = 'shelter-playtest-beta:player:v1';
-const BETA_HOST_DEMO = 'shelter-playtest-beta:host-demo:v1';
 const fxHas = (page, name, timeout = 5000) => page.waitForFunction((n) => window.ShelterFX.log.includes(n), name, { timeout });
 
-async function betaPlayer(page, name, others) {
+async function fxPlayer(page, name, others) {
   await tab(page, 'action');
   const nameInput = page.locator('.field', { hasText: '姓名' }).locator('input');
   await nameInput.fill(name);
   await nameInput.press('Enter');
   await nameInput.blur();
-  await page.waitForFunction(([k, n]) => (JSON.parse(localStorage.getItem(k)) || {}).name === n, [BETA_PLAYER_KEY, name]);
+  await page.waitForFunction(([k, n]) => (JSON.parse(localStorage.getItem(k)) || {}).name === n, [PLAYER_KEY, name]);
   await tab(page, 'save');
   await page.locator('.roster-card').getByRole('textbox', { name: '其他玩家的名字' }).fill(others.join('，'));
   await page.locator('.roster-card').getByRole('button', { name: '添加', exact: true }).click();
   await tab(page, 'action');
 }
 
-test('动画测试版：正式版文件不含动画层；测试版存档与正式版分开，互不影响', async () => {
-  for (const f of ['host.html', 'player.html', 'index.html']) {
-    const html = readFileSync(join(ROOT, f), 'utf8');
-    assert.ok(!html.includes('ShelterFX') && !html.includes('shelter-playtest-beta'), f + ' 不含测试版内容');
-  }
-  for (const f of ['host-beta.html', 'player-beta.html']) {
-    const html = readFileSync(join(ROOT, f), 'utf8');
-    assert.ok(html.includes('window.ShelterFX'), f + ' 带动画层');
-    assert.ok(!/shelter-playtest:(host|player)/.test(html), f + ' 不碰正式版存档');
-  }
-  const { context, external } = await newContext({ viewport: { width: 390, height: 844 } });
-  const { page: stable } = await open(context, PLAYER);
-  await tab(stable, 'action');
-  const stableName = stable.locator('.field', { hasText: '姓名' }).locator('input');
-  await stableName.fill('正式版的我');
-  await stableName.press('Enter');
-  await stableName.blur();
-  await stable.waitForFunction((k) => (JSON.parse(localStorage.getItem(k)) || {}).name === '正式版的我', PLAYER_KEY);
-
-  const { page: beta, errors } = await open(context, PLAYER_BETA);
-  assert.match(await beta.title(), /动画测试版/);
-  await betaPlayer(beta, '测试版的我', ['甲', '乙']);
-  assert.equal((await read(beta, PLAYER_KEY)).name, '正式版的我', '正式版存档没被改动');
-  assert.equal((await read(beta, BETA_PLAYER_KEY)).name, '测试版的我');
-  await stable.reload();
-  await tab(stable, 'action');
-  assert.equal(await stable.locator('.field', { hasText: '姓名' }).locator('input').inputValue(), '正式版的我');
-  assert.equal(await beta.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth), 0, '390px 宽没有横向溢出');
-  assert.deepEqual(errors, []);
-  assert.deepEqual(external, []);
-  await context.close();
-});
-
-test('动画测试版·玩家：点亮行动、发牌翻牌、选中都有动画与音效；设置可关并记住；系统减少动态效果时不翻牌', async () => {
+test('动画与音效·玩家：点亮行动、发牌翻牌、选中都有动画与音效；设置可关并记住；系统减少动态效果时不翻牌', async () => {
   const { context } = await newContext({ viewport: { width: 390, height: 844 } });
-  const { page, errors } = await open(context, PLAYER_BETA);
-  await betaPlayer(page, 'B·阿珍', ['A·老陈', 'C·胖虎', 'D·修女', 'E·二狗', 'F·教授']);
+  const { page, errors } = await open(context, PLAYER);
+  await fxPlayer(page, 'B·阿珍', ['A·老陈', 'C·胖虎', 'D·修女', 'E·二狗', 'F·教授']);
   await page.locator('[data-action="plan"]').click();
   await fxHas(page, 'light');
   await btn(page, '确认抽取守夜名单').click();
@@ -1353,7 +1316,7 @@ test('动画测试版·玩家：点亮行动、发牌翻牌、选中都有动画
   await page.waitForFunction(() => ['deal', 'flip'].every((n) => window.ShelterFX.played.includes(n)), null, { timeout: 4000 });
   await page.locator('.watch-section .wcard').nth(1).click();
   await fxHas(page, 'select');
-  assert.match(await page.getByRole('textbox', { name: '分享链接' }).inputValue(), /host-beta\.html#watch=[A-Za-z0-9_-]+$/, '测试版的链接打开测试版主持人页');
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth), 0, '390px 宽没有横向溢出');
 
   // 设置：关掉音效与动画；点面板里的按钮不会把面板关掉；刷新后还记得
   await page.locator('.fx-pill').click();
@@ -1366,13 +1329,14 @@ test('动画测试版·玩家：点亮行动、发牌翻牌、选中都有动画
   await page.reload();
   assert.deepEqual(await page.evaluate(() => window.ShelterFX.settings()), { motion: 'off', sound: false, volume: 0.6 });
   assert.equal(await page.locator('.fx-pill.muted').count(), 1, '静音时图标变灰');
+  assert.equal(await page.evaluate(() => localStorage.getItem('shelter-playtest:fx')), JSON.stringify({ motion: 'off', sound: false, volume: 0.6 }));
   assert.deepEqual(errors, []);
   await context.close();
 
   // 系统开了「减少动态效果」：照样记效果，但不发牌翻面
   const rc = await browser.newContext({ viewport: { width: 390, height: 844 }, reducedMotion: 'reduce' });
-  const { page: rp, errors: rerr } = await open(rc, PLAYER_BETA);
-  await betaPlayer(rp, '甲', ['乙', '丙']);
+  const { page: rp, errors: rerr } = await open(rc, PLAYER);
+  await fxPlayer(rp, '甲', ['乙', '丙']);
   await rp.locator('[data-action="plan"]').click();
   await btn(rp, '确认抽取守夜名单').click();
   await fxHas(rp, 'deal');
@@ -1382,12 +1346,10 @@ test('动画测试版·玩家：点亮行动、发牌翻牌、选中都有动画
   await rc.close();
 });
 
-test('动画测试版·主持人：新的一天、换阶段、轮换座次、计时最后几秒与时间到都有效果；打开守夜链接只翻牌不出声', async () => {
+test('动画与音效·主持人：新的一天、换阶段、轮换座次、计时最后几秒与时间到都有效果；打开守夜链接只翻牌不出声', async () => {
   const { context } = await newContext();
-  const { page: host, errors } = await open(context, HOST_BETA);
-  await tab(host, 'settings');
-  await btn(host, '打开演示存档').click();
-  await host.waitForFunction((k) => !!localStorage.getItem(k), BETA_HOST_DEMO);
+  const { page: host, errors } = await open(context, HOST);
+  await hostDemo(host);
   await tab(host, 'flow');
   await startDay1(host);
   await fxHas(host, 'dawn');
@@ -1428,32 +1390,19 @@ test('动画测试版·主持人：新的一天、换阶段、轮换座次、计
   await context.close();
 });
 
-test('动画测试版入口：链接指向测试版页面；一键重置只清测试版数据；英文界面没有残留中文', async () => {
-  const { context } = await newContext();
-  const landing = await context.newPage();
-  await landing.goto('file://' + join(ROOT, 'beta.html'));
-  assert.match(await landing.title(), /动画测试版/);
-  assert.deepEqual(await landing.locator('a[data-page]').evaluateAll((as) => as.map((a) => a.getAttribute('data-page'))), ['host-beta.html', 'player-beta.html']);
-  await landing.evaluate(() => {
-    localStorage.setItem('shelter-playtest:player:v1', '{"keep":true}');
-    localStorage.setItem('shelter-playtest-beta:player:v1', '{"beta":true}');
-    localStorage.setItem('shelter-playtest:lang', 'zh');
-  });
-  landing.on('dialog', (d) => d.accept());
-  await Promise.all([landing.waitForURL(/[?&]fresh=\d+/), landing.locator('#reset-btn').click()]);
-  const left = await landing.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('shelter-playtest')).sort());
-  assert.deepEqual(left, ['shelter-playtest:lang', 'shelter-playtest:player:v1'], '正式版数据与语言选择保留');
-
-  // 英文：入口与设置面板
-  await landing.evaluate(() => localStorage.setItem('shelter-playtest:lang', 'en'));
-  const { page, errors } = await open(context, PLAYER_BETA);
-  assert.match(await page.title(), /FX beta$/);
+test('动画与音效：设置面板中英文都没有残留；全屏展示时按钮隐藏', async () => {
+  const { context } = await newContext({ init: () => localStorage.setItem('shelter-playtest:lang', 'en') });
+  const { page, errors } = await open(context, PLAYER);
   await page.locator('.fx-pill').click();
   await page.locator('.fx-panel').waitFor();
-  assert.deepEqual(await leftoverChinese(page), [], 'player beta panel');
-  const { page: host } = await open(context, HOST_BETA);
+  assert.deepEqual(await leftoverChinese(page), [], 'player panel');
+  const { page: host } = await open(context, HOST);
   await host.locator('.fx-pill').click();
-  assert.deepEqual(await leftoverChinese(host), [], 'host beta panel');
+  assert.deepEqual(await leftoverChinese(host), [], 'host panel');
+  await host.keyboard.press('Escape');
+  await tab(host, 'stage');
+  await host.locator('.present-btn').click();
+  assert.ok(!(await host.locator('.fx-pill').isVisible()), '全屏展示时不显示动画音效按钮');
   assert.deepEqual(errors, []);
   await context.close();
 });

@@ -1,7 +1,7 @@
 /*
- * 避难所 Playtest · 动画与音效（测试版叠加层）
+ * 避难所 Playtest · 动画与音效
  *
- * 只内联进测试版页面（host-beta.html、player-beta.html）；正式版页面不包含这段代码。
+ * 内联在主持人页、玩家页最后（页面脚本之后）。
  * 不改页面逻辑：每次页面保存存档时，对比前后两份存档得知「刚发生了什么」，
  * 等页面画好后给对应元素加动画（Web Animations），并播放现场合成的音效（Web Audio，没有音频文件，离线可用）。
  *
@@ -17,7 +17,7 @@
   var T = U && U.T ? U.T : function (s) { return s; };
   var TC = U && U.TC ? U.TC : function (c, s) { return s; };
   var PAGE = document.body.classList.contains('host') ? 'host' : 'player';
-  var NS = 'shelter-playtest-beta:';
+  var NS = 'shelter-playtest:';
   var KEY_FX = NS + 'fx';
   var STATE_KEY = new RegExp('^' + NS.replace(/[-:]/g, '\\$&') + '(host|player)(-demo)?:v1$');
   var reduceMQ = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : { matches: false };
@@ -647,17 +647,14 @@
   var dock = null;
   var panelOpen = false;
 
-  function stablePage() {
-    var file = location.pathname.split('/').pop() || '';
-    return file.replace(/-beta(\.html)?$/, '$1') || (PAGE + '.html');
-  }
-
   function buildDock() {
     var keep = panelOpen;
     if (dock && dock.parentNode) dock.parentNode.removeChild(dock);
     var panel = el('div', { class: 'fx-panel', role: 'dialog', 'aria-label': T('动画与音效'), hidden: !keep }, [
-      el('div', { class: 'fx-head' }, [el('b', { text: T('动画与音效') }), el('span', { class: 'fx-tag', text: T('测试版') })]),
-      el('p', { class: 'fx-note', text: T('测试版：存档与正式版分开保存，互不影响。主持人端的声音只在公开时刻出现（阶段、计时、事件、营救、公开结果）；屏幕共享带声音时大家都能听到。') }),
+      el('div', { class: 'fx-head' }, [el('b', { text: T('动画与音效') })]),
+      el('p', { class: 'fx-note', text: PAGE === 'host'
+        ? T('只在公开时刻出声（阶段、计时、事件、营救、公开结果），秘密页里的操作不出声；屏幕共享带声音时大家都能听到。')
+        : T('浏览器要求先点一下页面才会出声。设置只记在这台设备上。') }),
       el('div', { class: 'fx-row' }, [el('span', { text: T('动画') }), seg([['auto', '跟随系统'], ['on', '开'], ['off', '关']], settings.motion, function (v) { settings.motion = v; saveSettings(); buildDock(); })]),
       el('div', { class: 'fx-row' }, [el('span', { text: T('音效') }), seg([[true, '开'], [false, '关']], settings.sound, function (v) { settings.sound = v; saveSettings(); unlock(); buildDock(); })]),
       el('label', { class: 'fx-row' }, [el('span', { text: T('音量') }), (function () {
@@ -668,14 +665,13 @@
       })()]),
       el('div', { class: 'fx-row' }, [el('span', { text: T('试听') }), el('div', { class: 'fx-try' }, TRY.map(function (t) {
         return el('button', { type: 'button', 'data-try': t[0], text: T(t[1]), onclick: function () { unlock(); note('try:' + t[0]); play(t[0]); } });
-      }))]),
-      el('a', { class: 'fx-link', href: stablePage(), text: T('打开正式版 →') })
+      }))])
     ]);
     var pill = el('button', {
       type: 'button', class: 'fx-pill' + (settings.sound ? '' : ' muted'), 'aria-expanded': keep ? 'true' : 'false',
-      'aria-label': T('动画与音效（测试版）'), title: T('动画与音效（测试版）'),
+      'aria-label': T('动画与音效'), title: T('动画与音效'),
       onclick: function () { panelOpen = !panelOpen; panel.hidden = !panelOpen; pill.setAttribute('aria-expanded', panelOpen ? 'true' : 'false'); }
-    }, [noteIcon(), el('span', { class: 'fx-beta', 'aria-hidden': 'true', text: 'β' })]);
+    }, [noteIcon()]);
     dock = el('div', { class: 'fx-dock' }, [panel, pill]);
     document.body.appendChild(dock);
   }
@@ -690,19 +686,11 @@
     if (e.key === 'Escape' && panelOpen) { panelOpen = false; buildDock(); }
   });
 
-  // 页面标题加上「测试版」；切换语言后设置面板跟着换
-  function markTitle() {
-    var suffix = ' · ' + T('动画测试版');
-    if (document.title.indexOf(suffix) < 0) document.title = document.title.replace(/ · (动画测试版|FX beta)$/, '') + suffix;
-  }
+  // 切换语言后设置面板跟着换
   if (window.MutationObserver) {
-    var titleEl = document.querySelector('title');
-    if (titleEl) new MutationObserver(markTitle).observe(titleEl, { childList: true, characterData: true, subtree: true });
-    new MutationObserver(function () { buildDock(); markTitle(); }).observe(document.documentElement, { attributes: true, attributeFilter: ['lang'] });
+    new MutationObserver(function () { buildDock(); }).observe(document.documentElement, { attributes: true, attributeFilter: ['lang'] });
   }
-  if (reduceMQ.addEventListener) reduceMQ.addEventListener('change', function () { /* 下一次动画时自动按新设置 */ });
 
-  markTitle();
   buildDock();
   if (PAGE === 'player') vitalsCheck(true);
 
