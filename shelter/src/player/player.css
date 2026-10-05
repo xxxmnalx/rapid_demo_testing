@@ -323,3 +323,9 @@ details.card > summary { cursor: pointer; }
   .big-num { font-size: 44px; }
   .tile.hero .tile-value { font-size: 48px; }
 }
+
+/* 守夜名单区 */
+.watch-section h3 { font-size: 15px; margin: 4px 0 2px; }
+.pick-part { margin-top: 6px; border-top: 1px dashed var(--line-strong); padding-top: 10px; }
+.pick-part > summary { cursor: pointer; padding: 4px 0; }
+.pick-part > .stack { margin-top: 8px; }

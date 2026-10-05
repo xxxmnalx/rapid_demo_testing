@@ -341,18 +341,23 @@ test('主持人：用演示存档完整走一回合（发放、轮换、换位�
   s = await read(page, HOST_DEMO);
   assert.deepEqual(s.today.plannerIds, [P(2), P(3)]);
   assert.deepEqual(s.today.skillUserIds, [P(4)]);
-  assert.equal(s.today.watchCandidates.length, 2);
-  assert.ok(s.today.watchCandidates.every((c) => c.options.length === 2), '每位计划者两份候选');
-  const candidatesBefore = JSON.stringify(s.today.watchCandidates);
-  await page.reload();
-  assert.equal(JSON.stringify((await read(page, HOST_DEMO)).today.watchCandidates), candidatesBefore, '刷新不重抽候选');
+  assert.equal(s.today.watchCandidates.length, 0, '候选卡由玩家在自己的页面抽，主持人端不自动抽');
 
-  // 阶段6：守夜（0／1／多份提交）
+  // 阶段6：守夜（0／1／多份提交）。这里模拟玩家无法使用页面：主持人代抽两张
   await tab(page, 'flow');
   await nextPhase(page);
   await tab(page, 'watch');
   await reveal(page, 'watch');
   await page.getByText('没有人提交名单').waitFor();
+  for (const pid of [P(2), P(3)]) await page.locator(`[data-planner="${pid}"]`).getByRole('button', { name: '主持人代抽两张（玩家无法使用页面时）' }).click();
+  s = await read(page, HOST_DEMO);
+  assert.equal(s.today.watchCandidates.length, 2);
+  assert.ok(s.today.watchCandidates.every((c) => c.options.length === 2), '每位计划者两张候选卡');
+  const candidatesBefore = JSON.stringify(s.today.watchCandidates);
+  await page.reload();
+  assert.equal(JSON.stringify((await read(page, HOST_DEMO)).today.watchCandidates), candidatesBefore, '刷新不重抽候选');
+  await tab(page, 'watch');
+  await reveal(page, 'watch');
   await page.locator(`[data-planner="${P(2)}"]`).getByRole('button', { name: '提交①' }).click();
   await page.getByText('只有一份提交').waitFor();
   await page.locator(`[data-planner="${P(3)}"]`).getByRole('button', { name: '提交②' }).click();
@@ -1078,4 +1083,103 @@ test('入口页：中英文切换，与两个面板共用同一个选择', async
   await page.locator('#lang-btn').click();
   assert.equal(await page.locator('h1').innerText(), '避难所 Playtest');
   await context.close();
+});
+
+// ---------------------------------------------------------------- 守夜名单：玩家抽卡 → 代码 → 主持人候选池 → 末位拍板
+
+test('守夜名单：计划者在玩家页抽两张卡、复制代码；主持人粘贴进候选池；多人时末位用名单码拍板', async () => {
+  const { context: hc } = await newContext();
+  const { page: host, errors } = await open(hc, HOST);
+  await hostDemo(host);
+  await tab(host, 'flow');
+  await startDay1(host);
+  await nextPhase(host); // 2
+  await nextPhase(host); // 3
+  await nextPhase(host); // 4
+  await btn(host, '执行每日轮换').click();
+  await nextPhase(host); // 5 个人行动
+  // 规则包里带玩家名单
+  await tab(host, 'settings');
+  await host.locator('summary', { hasText: '规则包（发给玩家）' }).click();
+  const pack = await host.locator('details', { hasText: '规则包（发给玩家）' }).locator('textarea').inputValue();
+  assert.ok(JSON.parse(pack).roster.players.some((p) => p.name === 'B·阿珍'));
+
+  async function player(name) {
+    const { context } = await newContext({ viewport: { width: 390, height: 844 } });
+    const { page } = await open(context, PLAYER);
+    await tab(page, 'save');
+    await page.locator('details', { hasText: '导入主持人规则包' }).locator('textarea').fill(pack);
+    await btn(page, '校验并导入').click();
+    await tab(page, 'action');
+    const nameInput = page.locator('.field', { hasText: '姓名' }).locator('input');
+    await nameInput.fill(name);
+    await nameInput.press('Enter');
+    await nameInput.blur();
+    await page.waitForFunction((n) => JSON.parse(localStorage.getItem('shelter-playtest:player:v1')).name === n, name);
+    return { context, page };
+  }
+  async function planAndCopy(page, index) {
+    await page.locator('[data-action="plan"]').click();
+    const cards = page.locator('.watch-section .watch-cards').first().locator('.watch-card');
+    assert.equal(await cards.count(), 2, '两张候选卡');
+    const before = await page.evaluate(() => JSON.stringify(JSON.parse(localStorage.getItem('shelter-playtest:player:v1')).watchPlan.cards));
+    await cards.nth(index).click();
+    // 撤销选卡再重新点亮行动：还是同一对卡，不能重抽
+    await page.locator('[data-action="plan"]').click();
+    await page.locator('[data-action="plan"]').click();
+    const after = await page.evaluate(() => JSON.stringify(JSON.parse(localStorage.getItem('shelter-playtest:player:v1')).watchPlan.cards));
+    assert.equal(after, before, '同一天重新点亮不会重抽');
+    await cards.nth(index).click();
+    return page.locator('.watch-section .copy-text').first().inputValue();
+  }
+  async function hostPaste(code) {
+    await tab(host, 'watch');
+    if (await host.locator('[data-gate="watch"]').count()) await reveal(host, 'watch');
+    await host.locator('.code-reader textarea').fill(code);
+    await btn(host, '读取代码').click();
+  }
+
+  // 第一位计划者：只有一份提交时直接成为最终名单
+  const p1 = await player('B·阿珍');
+  const code1 = await planAndCopy(p1.page, 0);
+  assert.match(code1, /^【守夜提交·第1天】B·阿珍：我选第 1 张。\nSHELTER-WATCH:/);
+  const card1 = JSON.parse(await p1.page.evaluate(() => localStorage.getItem('shelter-playtest:player:v1'))).watchPlan.cards[0];
+  if (card1.designatedNames) assert.equal(card1.designatedNames.length, 2, '6 人局随机抽 2 人');
+  await hostPaste(code1);
+  await modal(host).getByText('按代码里的名字「B·阿珍」自动匹配').waitFor();
+  await modalBtn(host, '加入今天的候选池');
+  let s = await read(host, HOST_DEMO);
+  assert.deepEqual(s.today.plannerIds, [P(2)], '收到代码时补记计划者');
+  assert.equal(s.today.watchCandidates[0].source, 'code');
+  assert.equal(s.today.watchCandidates[0].chosenIndex, 0);
+  await host.getByText('只有一份提交：B·阿珍 选中的名单直接成为最终名单。').waitFor();
+
+  // 第二位计划者 → 两份提交：末位拍板
+  const p2 = await player('C·胖虎');
+  await hostPaste(await planAndCopy(p2.page, 1));
+  await modalBtn(host, '加入今天的候选池');
+  const poolText = await host.locator('.copy-block', { has: host.getByRole('button', { name: '复制名单码' }) }).locator('textarea').inputValue();
+  assert.match(poolText, /SHELTER-POOL:/);
+  s = await read(host, HOST_DEMO);
+  const lastName = s.players.find((p) => p.id === s.seatOrder.at(-1)).name;
+  const p3 = await player(lastName);
+  await p3.page.locator('.pick-part > summary').click();
+  await p3.page.locator('.pick-part textarea').fill(poolText);
+  await btn(p3.page, '读取名单码').click();
+  const pickCards = p3.page.locator('.pick-part .watch-card');
+  assert.equal(await pickCards.count(), 2, '末位看到两份提交');
+  await pickCards.nth(1).click();
+  const pickCode = await p3.page.locator('.pick-part .copy-text').inputValue();
+  assert.match(pickCode, /SHELTER-PICK:/);
+  await hostPaste(pickCode);
+  s = await read(host, HOST_DEMO);
+  const chosen = s.today.watchCandidates.find((c) => c.id === s.today.watchDecision);
+  assert.equal(chosen.plannerId, P(3), '末位选了 C·胖虎 的提交');
+  await btn(host, '确认最终名单（保存人员快照）').click();
+  s = await read(host, HOST_DEMO);
+  assert.ok(s.today.finalWatch.memberIds.length >= 1);
+  assert.ok(!s.today.plannerIds.includes(s.seatOrder.at(-1)) || [P(2), P(3)].includes(s.seatOrder.at(-1)), '只拍板不算计划者');
+  assert.deepEqual(errors, []);
+  for (const c of [p1, p2, p3]) await c.context.close();
+  await hc.close();
 });

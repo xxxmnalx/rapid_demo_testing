@@ -374,3 +374,31 @@ hp 必须是数字	hp must be a number
 缺少 playerId	Missing playerId
 不是规则包（kind 应为 shelter-rules）	Not a rules pack (kind should be shelter-rules)
 规则包缺少 rules	Rules pack is missing rules
+守夜人数（随机抽人时）	Watch size (for random draws)
+留空＝存活人数的三分之一，向上取整（6人2人、7人3人）；特殊条件可改	Empty = one third of the living players, rounded up (6 → 2, 7 → 3); can change for special conditions
+守夜卡片提前显示可能遭遇	Show possible outcomes on watch cards
+风险后果是否提前可见尚未确定：暂定显示；关闭后卡片上只写「主持人确认后公布」	Whether risk outcomes are visible in advance is TBD: shown for now; when off, cards only say “announced after the host confirms”
+随机抽人	Random draw
+按行动指定：今天使用行动计划守夜名单的人守夜	By action: whoever used their action to plan the watch roster today keeps watch
+按行动指定：今天使用职业技能的人守夜	By action: whoever used a profession skill today keeps watch
+全体指定：所有人今晚守夜	Everyone: all players keep watch tonight
+收益倾向	Reward tendency
+风险倾向	Risk tendency
+这份守夜名单似乎能获得更多获救信息	This roster seems likely to get more rescue information
+这份守夜名单或许在今晚会遭遇更多不测	This roster may run into more trouble tonight
+额外饥饿	Extra hunger
+受伤	Injury
+无事发生	Nothing happens
+获得营救信息／关键物资	Rescue info / key supplies
+随机 	 
+ 人守夜	 random players watch
+ 守夜	 watch
+ 人守夜（主持人收到代码后按存活名单抽出）	 random players watch (the host draws them from the living players on receiving the code)
+今天使用行动计划守夜名单的人守夜	Whoever used their action to plan the watch roster today keeps watch
+今天使用职业技能的人守夜	Whoever used a profession skill today keeps watch
+所有人今晚守夜	All players keep watch tonight
+ 名守夜者	 watcher(s)
+可能遭遇：主持人确认后公布	Possible outcomes: announced after the host confirms
+没有找到代码：请粘贴以 SHELTER- 开头的整段内容	No code found: paste the whole message starting with SHELTER-
+代码不完整或已损坏：请重新复制整段	The code is incomplete or damaged: copy the whole thing again
+守夜候选卡还没选：选一张后把代码发给主持人	Watch card not chosen yet: pick one and send the code to the host

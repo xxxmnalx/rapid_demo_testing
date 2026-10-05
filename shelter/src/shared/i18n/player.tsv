@@ -666,3 +666,43 @@
 个人日志（	Personal log (
 搜刮：离开期间已超时的回合按默认项记录	Scavenge: rounds that timed out while you were away were recorded with defaults
 另一个标签页修改了同一份玩家存档。请只保留一个标签页，然后刷新本页。	Another tab changed the same player save. Keep only one tab open, then refresh this page.
+抽到两张守夜候选卡	Drew two watch cards
+选择守夜候选卡	Choose watch card
+守夜名单	Watch roster
+已选第 	Picked #
+ 张	 
+我的两张候选卡	My two cards
+每张卡写明谁守夜、倾向和可能遭遇。选一张，把代码发给主持人；主持人把它放进今天的候选池。只有你一个人计划时，你选的直接生效。	Each card says who keeps watch, the tendency and possible outcomes. Pick one and send the code to the host, who adds it to today's pool. If you're the only planner, your pick takes effect directly.
+还没有玩家名单：卡片只写人数，主持人收到代码后按存活名单抽人。导入主持人的规则包后会显示名字。 	No player list yet: cards only show a headcount, and the host draws names from the living players on receiving your code. Import the host's rules pack to see names. 
+去导入规则包	Import the rules pack
+【守夜提交·第	~
+：我选第 	: I pick card 
+ 张。\n	.\n
+复制给主持人	Copy for the host
+私发给主持人，主持人粘贴进「守夜」页	Send privately to the host, who pastes it on the Watch page
+今天的行动不是「计划守夜名单」：卡片保留，重新点亮后还是这两张。	Today's action isn't “Plan watch roster”: the cards are kept, and you get the same two if you light it up again.
+点亮上方「计划守夜名单」后，会在这里抽两张候选卡。	Light up “Plan watch roster” above to draw two cards here.
+粘贴主持人发来的名单码（SHELTER-POOL…）	Paste the list code from the host (SHELTER-POOL…)
+粘贴主持人发来的名单码	Paste the list code from the host
+这不是主持人发来的名单码	This isn't a list code from the host
+收到守夜名单码	Watch list code received
+收到第	~
+天的守夜名单码：	~
+末位拍板	Last-seat decision
+两人及以上计划时，由实际换位后座次最后的玩家从所有提交里选一份。只负责拍板不算计划者。主持人会把名单码发给你，粘贴进来就能看到所有提交：	When two or more players plan, the player in the last seat (after swaps) picks one of the submissions. Only deciding doesn't count as planning. The host sends you a list code — paste it here to see every submission:
+读取名单码	Read list code
+ 天 · 	~
+ 份提交：点一份作为最终名单。	 submissions: tap one as the final roster.
+ 提交 · 	 submitted · 
+守夜拍板：选择 	Watch decision: picked 
+ 提交的名单	's roster
+：我选 	: I pick 
+ 提交的名单。\n	's roster.\n
+复制拍板码给主持人	Copy pick code for the host
+私发给主持人	Send privately to the host
+守夜卡片显示可能遭遇	Show possible outcomes on watch cards
+玩家名单：	Player list: 
+ 天导入）	~
+还没有导入（规则包里带，守夜候选卡要用来显示名字）	Not imported yet (it comes with the rules pack; watch cards use it to show names)
+只更新规则、自定义物品、玩家名单与守夜名单模板（以及包里附带的搜刮模板），不碰你的库存和状态。	Only updates rules, custom items, the player list and watch roster templates (plus any scavenge template in the pack); your inventory and status are untouched.
+ · 收到主持人的名单码时用	 · use it when the host sends you a list code

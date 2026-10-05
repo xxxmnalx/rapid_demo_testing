@@ -460,6 +460,42 @@
     return obj;
   }
 
+  /**
+   * 守夜候选卡。t 来自 ShelterCore.watchCardText：{ title, who, tendency, tendencyKind, effects }。
+   * opts: { label（①／②）, selected, onclick（可点选时整张卡是按钮）, id }
+   */
+  function watchCard(t, opts) {
+    opts = opts || {};
+    var clickable = typeof opts.onclick === 'function';
+    return h(clickable ? 'button' : 'div', {
+      type: clickable ? 'button' : null,
+      class: 'watch-card' + (opts.selected ? ' on' : ''),
+      'aria-pressed': clickable ? (opts.selected ? 'true' : 'false') : null,
+      'data-watch-card': opts.id || null,
+      onclick: clickable ? opts.onclick : null
+    },
+      h('span', { class: 'watch-card-head' },
+        opts.label ? h('span', { class: 'watch-card-label' }, opts.label) : null,
+        h('span', { class: 'watch-card-title' }, t.title),
+        opts.selected ? h('span', { class: 'watch-card-picked' }, icon('check'), '已选') : null),
+      h('span', { class: 'watch-card-who' }, t.who),
+      t.tendency ? h('span', { class: 'watch-card-tend tend-' + t.tendencyKind }, t.tendency) : null,
+      t.effects.length ? h('span', { class: 'watch-card-fx' }, t.effects.map(function (e) { return h('span', { class: 'fx' }, e); })) : null);
+  }
+
+  /** 「从剪贴板粘贴」：浏览器不允许时提示手动粘贴。 */
+  function pasteButton(onText) {
+    return h('button', {
+      type: 'button', class: 'btn', onclick: function () {
+        var fail = function () { toast('浏览器不允许读取剪贴板：请长按或右键粘贴到框里', 'warn'); };
+        try {
+          if (!navigator.clipboard || !navigator.clipboard.readText) { fail(); return; }
+          navigator.clipboard.readText().then(function (text) { if (text) onText(text); else fail(); }, fail);
+        } catch (e) { fail(); }
+      }
+    }, '从剪贴板粘贴');
+  }
+
   /** 语言切换按钮：显示「要切换到的语言」，点了保存选择并重画页面。 */
   function langToggle(onChange) {
     var en = I18N.isEn();
@@ -479,6 +515,8 @@
     i18n: I18N,
     langToggle: langToggle,
     localizeDemo: localizeDemo,
+    watchCard: watchCard,
+    pasteButton: pasteButton,
     sevBadge: sevBadge,
     meter: meter,
     statTile: statTile,

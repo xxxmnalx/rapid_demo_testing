@@ -1109,3 +1109,45 @@ Discord 投票	Discord vote
 复制规则包	Copy rules pack
 下载规则包	Download rules pack
 另一个标签页修改了同一份主持人存档。为避免互相覆盖，请只保留一个主持人标签页，然后刷新本页。	Another tab changed the same host save. To avoid overwriting each other, keep only one host tab open, then refresh this page.
+「计划守夜名单」：玩家在自己的页面抽两张候选卡、选一张，把代码发给你，在「守夜」页粘贴即可。玩家没法用页面时，可在「守夜」页代抽。换位请走「换位请求」。	“Plan watch roster”: the player draws two cards on their own page, picks one and sends you the code; paste it on the Watch page. If a player can't use their page, you can draw for them on the Watch page. For swaps, use “Swap request”.
+ 代抽守夜候选：	 — host drew watch options: 
+今天还没有人计划守夜名单。玩家在自己的页面点亮「计划守夜名单」后会抽到两张卡，选好后把代码发给你。	No one has planned a watch roster today. When a player lights up “Plan watch roster” on their page they get two cards, pick one and send you the code.
+等待玩家发来代码	Waiting for the player's code
+玩家在自己的页面抽卡、选卡后会发来以 SHELTER-WATCH 开头的代码，粘贴到上面即可。	After drawing and picking on their page, the player sends a code starting with SHELTER-WATCH — paste it above.
+主持人代抽两张（玩家无法使用页面时）	Host draws two (when the player can't use their page)
+（代码）	 (code)
+粘贴玩家发来的代码（SHELTER-WATCH… 或 SHELTER-PICK…）	Paste a code from a player (SHELTER-WATCH… or SHELTER-PICK…)
+粘贴玩家发来的代码	Paste a code from a player
+读取代码	Read code
+整条消息粘进来也可以，页面只认 SHELTER- 开头的那段。	Pasting the whole message is fine; the page only reads the part starting with SHELTER-.
+这不是守夜代码（	This isn't a watch code (
+代码里没有选中的卡片	The code has no chosen card
+今日最终名单已确认：如需重来，请先作废	Today's final roster is already confirmed: void it first to start over
+计划者	Planner
+按代码里的名字「	Matched automatically by the name “
+」自动匹配	” in the code
+代码里的名字「	The name “
+」不在玩家名单里：请手动选择	” in the code isn't on the player list: choose by hand
+代码是第 	~
+ 天抽的，现在是第 	~
+ 天。	~
+卡片里有不在玩家名单中的名字：	The cards contain names not on the player list: 
+（会被忽略，确认名单时可手动调整）。	 (they're ignored; adjust by hand when confirming the roster).
+加入后就是该玩家的提交：只有一份时直接成为最终名单；两份及以上时由末位从提交里拍板。	Once added, this is the player's submission: with only one it becomes the final roster; with two or more the last seat decides.
+收到守夜提交	Watch submission received
+加入今天的候选池	Add to today's pool
+：计划守夜名单（收到代码时补记）	: plan watch roster (recorded when the code arrived)
+ 发来守夜提交	 sent a watch submission 
+已加入今天的候选池	Added to today's pool
+找不到这张卡：名单可能已变化，请重新发名单码给末位	Can't find this card: the list may have changed — send the list code to the last seat again
+ 通过代码拍板：	 decided by code: 
+已按末位的选择更新，请在下方确认最终名单	Updated with the last seat's choice; confirm the final roster below
+发给末位的名单码	List code for the last seat
+：你是末位，请在玩家页「行动与身份 → 守夜名单」粘贴这段代码，选好后把拍板码发回来。\n	: you're in the last seat — paste this code under Action & identity → Watch roster on your player page, pick one, and send the pick code back.\n
+复制名单码	Copy list code
+暂停共享后私发；末位发回的拍板码粘贴到上方「今日计划者与候选」	Send privately after pausing sharing; paste the pick code they send back into “Today's planners and options” above
+给末位的私信文本（不用代码时）	DM text for the last seat (without codes)
+名单	Roster
+随机抽人时为 	Random draws pick 
+ 人（存活人数的三分之一，向上取整；可在规则里固定人数）。是否实际守夜不会自动消耗本人额外行动。	 players (one third of the living players, rounded up; you can fix the number in the rules). Watching doesn't cost the watcher an extra action.
+只包含规则配置、自定义物品、玩家名单与守夜名单模板，不含任何秘密。玩家在自己页面的「存档」里粘贴导入（守夜候选卡要用名单显示名字）。	Contains only rule settings, custom items, the player list and watch roster templates — no secrets. Players paste it under Save on their page (watch cards use the list to show names).
