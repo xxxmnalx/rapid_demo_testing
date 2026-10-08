@@ -1,0 +1,81 @@
+/* 联机（主持人页、玩家页共用）。
+ * 青绿＝在线、已送达；橙＝连接中、等待；红只用于已停止。状态都有文字，不只靠颜色。 */
+
+.chip.info { background: #e6eef6; color: #2c4058; }
+.chip.warn { background: var(--orange-soft); color: #8a3f08; }
+
+/* ---------- 顶栏小标签 ---------- */
+.net-chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--line-strong); background: var(--surface-2); color: var(--ink-2); font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; font-family: inherit; line-height: 1.4; }
+.net-chip:hover { border-color: var(--teal); }
+.net-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: 0 0 auto; }
+.net-chip.st-online { border-color: #b4dbd2; background: var(--teal-soft); color: var(--teal-strong); }
+.net-chip.st-online .net-dot { background: var(--teal); }
+.net-chip.st-connecting .net-dot, .net-chip.st-reconnecting .net-dot, .net-chip.st-lobby .net-dot { background: var(--orange); }
+.net-chip.st-reconnecting { border-color: #eccaa6; background: var(--orange-soft); color: #8a3f08; }
+.net-chip.st-stopped .net-dot { background: var(--red); }
+@media (max-width: 519px) {
+  .p-top-tools .net-chip { padding: 3px 7px; gap: 4px; }
+  .p-top-tools .net-chip-text { display: none; }
+}
+.net-unread { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; background: var(--orange); color: #fff; font-size: 12px; line-height: 18px; text-align: center; }
+
+/* ---------- 房间、二维码 ---------- */
+.net-join { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; margin-bottom: 12px; }
+.net-join > .grow { flex: 1 1 260px; min-width: 0; }
+.net-qr { flex: 0 0 auto; line-height: 0; }
+.net-qr svg { display: block; max-width: 100%; height: auto; border-radius: 8px; border: 1px solid var(--line); background: #fff; }
+.net-code { font-family: var(--mono); font-size: 30px; font-weight: 700; letter-spacing: 0.18em; color: var(--ink); line-height: 1.2; }
+.net-code-input { font-family: var(--mono); font-size: 20px; letter-spacing: 0.12em; text-transform: uppercase; width: 9em; }
+.net-guests { margin-bottom: 12px; padding: 10px 12px; border-radius: 8px; background: var(--orange-soft); border: 1px solid #eccaa6; }
+.net-guests h3 { margin: 0; font-size: 15px; }
+.net-guest { align-items: center; }
+.net-feed > li { font-size: 14px; padding: 6px 0; }
+.net-vote ul { margin: 8px 0; }
+.net-vote-stage { margin: 10px 0 0; font-weight: 650; color: var(--teal-strong); }
+.net-stage-join { text-align: center; }
+.net-stage-join .net-qr svg { margin: 0 auto; }
+.net-stage-join .net-code { margin-top: 8px; }
+
+/* ---------- 玩家页：加入 ---------- */
+.net-roster { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+.net-name { min-height: 44px; }
+.net-wait { font-size: 17px; font-weight: 650; color: #8a3f08; }
+
+/* ---------- 玩家页：现场 ---------- */
+.pn-live { display: flex; flex-direction: column; gap: 12px; }
+.pn-live > .card-head { margin-bottom: 0; }
+.pn-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.pn-phase { font-size: 19px; font-weight: 700; }
+.pn-timer { display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 20px; font-weight: 700; padding: 2px 10px; border-radius: 8px; background: var(--surface-2); font-variant-numeric: tabular-nums; }
+.pn-timer.running { background: var(--teal-soft); color: var(--teal-strong); }
+.pn-turn { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; padding: 10px 12px; border-radius: 8px; background: var(--surface-2); }
+.pn-turn.me { background: var(--teal-soft); border: 1px solid #b4dbd2; }
+.pn-turn.me b { font-size: 17px; color: var(--teal-strong); }
+.pn-order { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; counter-reset: pn; }
+.pn-order li { counter-increment: pn; padding: 2px 10px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--line); font-size: 14px; }
+.pn-order li::before { content: counter(pn) ". "; color: var(--muted); }
+.pn-order li.done { color: var(--muted); }
+.pn-order li.current { background: var(--teal); border-color: var(--teal); color: #fff; }
+.pn-order li.current::before { color: rgba(255, 255, 255, 0.8); }
+.pn-order li.me { font-weight: 700; }
+.pn-offer { padding: 12px; border-radius: 8px; border: 2px solid var(--teal); background: var(--teal-soft); }
+.pn-offer p { margin: 4px 0 8px; }
+.pn-items { display: flex; flex-wrap: wrap; gap: 8px; }
+.pn-items .btn { min-height: 44px; }
+.pn-event { padding: 12px; border-radius: 8px; background: var(--surface-2); border: 1px solid var(--line); }
+.pn-event p { margin: 6px 0; }
+.pn-vote-btns { display: flex; flex-direction: column; gap: 8px; }
+.pn-vote-btn { justify-content: flex-start; text-align: left; min-height: 44px; width: 100%; }
+.pn-count { margin-left: auto; padding-left: 10px; font-weight: 600; }
+.pn-rescue { font-size: 15px; }
+.pn-seats { display: inline-flex; flex-wrap: wrap; gap: 4px 10px; }
+.pn-seat.me { font-weight: 700; color: var(--teal-strong); }
+.pn-feed { margin: 0; padding-left: 18px; font-size: 14.5px; }
+.pn-feed li + li { margin-top: 4px; }
+.pn-batches > li { padding: 6px 0; font-size: 14.5px; }
+
+/* ---------- 玩家页：收件箱 ---------- */
+.pn-msg { display: flex; flex-direction: column; gap: 4px; }
+.pn-msg-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.pn-msg-meta .chip { margin-left: 0; }
+.pn-msg-text { white-space: pre-wrap; overflow-wrap: anywhere; }

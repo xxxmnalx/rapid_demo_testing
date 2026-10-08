@@ -3,7 +3,8 @@
  *
  * 公开展示区给 Discord 屏幕共享；库存、抽取详情、未公布名单与日志详情放在独立的隐藏管理区。
  * 隐藏时秘密内容根本不渲染进页面（不是模糊或蒙层），刷新后一律恢复隐藏。
- * 主持人端与玩家端互不同步：所有跨端变化都生成可复制的交接文本，由对方手动修改。
+ * 不开联机房间时，主持人端与玩家端互不同步：所有跨端变化都生成可复制的交接文本，由对方手动修改。
+ * 开了联机房间（见「联机」一节）后，公开信息、发放的物品、私信直接送到玩家页，玩家页的行动、投票、领取、交公直接送到这里。
  */
 (function () {
   'use strict';
@@ -27,6 +28,7 @@
     { id: 'events', name: '公共事件', secret: true, group: 'secret' },
     { id: 'records', name: '记录与结算', secret: true, group: 'secret' },
     { id: 'log', name: '日志', secret: true, group: 'secret' },
+    { id: 'net', name: '联机', group: 'setup' },
     { id: 'settings', name: '设置与存档', group: 'setup' }
   ];
 
@@ -131,7 +133,9 @@
 
   function save() {
     state.updatedAt = Date.now();
-    if (wiping || !store.available) return;
+    if (wiping) return;
+    netAfterSave();
+    if (!store.available) return;
     if (!store.write(state)) {
       var msg = '自动保存失败（' + ((store.lastError && store.lastError.name) || '未知错误') + '），可能是存储空间已满：请立即导出 JSON。';
       if (!notices.some(function (n) { return n.text === msg; })) notices.push({ kind: 'danger', text: msg });
@@ -156,17 +160,35 @@
       render();
       return false;
     }
-    if (opts.undo !== false) undo.push(label, before);
+    if (opts.undo !== false) {
+      undo.push(label, before);
+      undo.peek().netSeq = net.seq;
+    }
+    netReconcile(before, state);
     save();
     render();
     return true;
   }
 
+  /**
+   * 撤销：恢复上一步之前的存档。之后从联机来的修改（玩家的投票、领取、交公……）不在撤销栈里，
+   * 恢复后按顺序重新套用一遍，不会被一起撤掉；套用不上的（例如撤掉了对应的事件）就跳过。
+   */
   function undoLast() {
     var item = undo.pop();
     if (!item) return;
-    state = item.snapshot;
+    var prev = state;
+    var next = item.snapshot;
+    var since = item.netSeq == null ? net.seq : item.netSeq;
+    net.journal.forEach(function (j) {
+      if (j.seq <= since) return;
+      var trial = C.clone(next);
+      try { if (j.fn(trial) !== false) next = trial; } catch (e) { /* 撤销后不再成立：跳过 */ }
+    });
+    state = next;
     log(state, '撤销：' + item.label);
+    if (item.rebase) netRebase();
+    else netReconcile(prev, state);
     save();
     render();
     U.toast('已撤销：' + item.label, 'ok');
@@ -338,11 +360,28 @@
     render();
   }
 
+  /**
+   * 联机消息随时会来：正在输入时只重画顶栏，离开输入框后再重画主体，避免打字被打断。
+   */
   function render() {
     renderBanner();
     renderTop();
     renderTabs();
+    if (ui.quietRender && isTyping()) { ui.mainStale = true; return; }
+    ui.mainStale = false;
     renderMain();
+  }
+
+  function flushStale() {
+    if (!ui.mainStale || ui.pointerDown || isTyping()) return;
+    renderMain();
+    ui.mainStale = false;
+  }
+
+  function isTyping() {
+    var el = document.activeElement;
+    if (!el || !document.getElementById('main').contains(el)) return false;
+    return el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || (el.tagName === 'INPUT' && !/^(checkbox|radio|button|submit|range|color|file)$/i.test(el.type));
   }
 
   function renderBanner() {
@@ -379,7 +418,7 @@
     var last = undo.peek();
     var target = state.rules.rescueTarget;
     top.appendChild(h('div', { class: 'top-main' },
-      h('div', { class: 'brand' }, h('b', null, '避难所 Playtest'), h('span', { class: 'brand-role' }, '主持人'), U.langToggle(onLangChange)),
+      h('div', { class: 'brand' }, h('b', null, '避难所 Playtest'), h('span', { class: 'brand-role' }, '主持人'), U.langToggle(onLangChange), netChip()),
       h('div', { class: 'top-stats' },
         stat('天数', state.started ? '第 ' + state.day + ' 天' : '未开始'),
         stat('阶段', C.phaseLabel(state.phase)),
@@ -420,7 +459,7 @@
 
   function renderMain() {
     var main = U.clear(document.getElementById('main'));
-    var views = { stage: renderStage, flow: renderFlow, supply: renderSupply, watch: renderWatch, events: renderEvents, records: renderRecords, log: renderLog, settings: renderSettings };
+    var views = { stage: renderStage, flow: renderFlow, supply: renderSupply, watch: renderWatch, events: renderEvents, records: renderRecords, log: renderLog, net: renderNet, settings: renderSettings };
     if (ui.present && ui.tab !== 'stage') exitPresent(true);
     main.className = 'main tab-' + ui.tab;
     main.appendChild((views[ui.tab] || renderStage)());
@@ -455,7 +494,7 @@
       h('div', { class: 'stage-grid' },
         h('div', { class: 'stage-focus' }, focus.node,
           focus.kind !== 'seats' ? h('div', { class: 'stage-panel' }, h('h3', null, '座次'), seatChips(true)) : null),
-        h('aside', { class: 'stage-side' }, timerWidget(true), stageRescue())),
+        h('aside', { class: 'stage-side' }, timerWidget(true), stageRescue(), netStageJoin())),
       h('div', { class: 'stage-more' }, more));
   }
 
@@ -548,9 +587,10 @@
       ev ? h('div', null,
         h('div', { class: 'event-title' }, ev.name, ev.location ? h('span', { class: 'event-loc' }, ev.location) : null),
         ev.body ? h('p', { class: 'event-body' }, ev.body) : null,
-        ev.options && ev.options.length ? h('div', { class: 'vote-options' }, h('span', { class: 'muted' }, 'Discord 投票'), ev.options.map(function (o, i) {
+        ev.options && ev.options.length ? h('div', { class: 'vote-options' }, h('span', { class: 'muted' }, netVoteOpen() ? '玩家页投票' : 'Discord 投票'), ev.options.map(function (o, i) {
           return h('span', { class: 'vote-option' }, h('b', null, String.fromCharCode(65 + i)), o);
-        })) : null) : null);
+        })) : null,
+        netVoteStage()) : null);
   }
 
   function stageRescue() {
@@ -1133,7 +1173,8 @@
             h('td', { class: 'c-no' }, String(i + 1)),
             h('td', { class: 'c-name' }, nameOf(id), !isAlive(id) ? chip('已死亡', 'danger') : null),
             h('td', { class: 'c-state' }, done ? '✓ 已行动' : id === current ? '▶ 当前' : '等待'),
-            h('td', { class: 'c-rec' }, acts.length ? acts.map(actionText).join('、') : '—', swaps ? h('span', { class: 'muted small' }, '（换位请求 ' + swaps + '/' + state.rules.swapRequestLimit + '）') : null),
+            h('td', { class: 'c-rec' }, acts.length ? acts.map(actionText).join('、') : '—', swaps ? h('span', { class: 'muted small' }, '（换位请求 ' + swaps + '/' + state.rules.swapRequestLimit + '）') : null,
+              !done && t.netPending && t.netPending[id] ? chip('玩家页已选：' + actionText(t.netPending[id]) + (id === current ? '' : '（轮到时自动记录）'), 'info') : null),
             h('td', { class: 'c-seat' }, seat >= 0 ? '第 ' + (seat + 1) + ' 座' : '不在座次'),
             h('td', { class: 'c-ops' }, h('div', { class: 'row tight' },
               done ? null : h('button', { type: 'button', class: 'btn small primary', onclick: function () { recordActionDialog(id); } }, '记录行动'),
@@ -1172,6 +1213,7 @@
       commit('记录行动', function (s) {
         var r = C.recordAction(s, pid, { type: type, note: note.value });
         if (!r.ok) throw new Error(r.reason);
+        if (s.today.netPending) delete s.today.netPending[pid];
         log(s, nameOf(pid) + '：' + actionText({ type: type }));
         if (note.value) log(s, nameOf(pid) + ' 行动备注：' + note.value, true);
       });
@@ -1227,6 +1269,7 @@
       commit('换位请求', function (s) {
         var r = C.requestSwap(s, { fromId: fromId, toId: target, accepted: accepted, ends: choice === 'end', targetPays: targetPays.checked, override: override.checked });
         if (!r.ok) throw new Error(r.reason);
+        if (s.today.netPending) delete s.today.netPending[fromId];
         log(s, nameOf(fromId) + ' 请求与 ' + nameOf(target) + ' 换位：' + (accepted ? '同意，座次已交换 → ' + names(s.seatOrder) : '拒绝') +
           (choice === 'end' ? '；行动结束' : '；行动未结束') + (targetPays.checked ? '；被请求者也消耗行动' : '') + (override.checked ? '（覆盖次数上限）' : ''));
       });
@@ -1685,6 +1728,8 @@
 
   function pick(batchId, pid, pieceId) {
     var text = '';
+    var picked = null;
+    var batch = null;
     var ok = commit('记录选择', function (s) {
       var b = findBatch(s, batchId);
       var r = C.pickFromBatch(b, pid, pieceId);
@@ -1692,20 +1737,30 @@
       log(s, b.label + '：' + nameOf(pid) + ' 选择 ' + describe(r.pick.piece), true);
       log(s, b.label + '：' + nameOf(pid) + ' 已领取');
       text = handoffForPick(b, r.pick);
+      picked = r.pick;
+      batch = b;
       if (!b.items.length && b.picks.length === b.pickOrder.length) markOpeningDone(s, b);
     });
-    if (ok) showHandoff(text);
+    if (!ok) return;
+    // 玩家已加入联机房间：物品直接送进他的玩家页库存（commit 里已经发出），不用交接文本
+    if (netGranted(grantKey(batch, picked.piece))) U.toast(describe(picked.piece) + ' → ' + nameOf(pid) + '：已交给房间，玩家页自动入库', 'ok');
+    else showHandoff(text);
   }
 
   function unpick(batchId, pid) {
-    commit('撤回选择', function (s) {
+    var b0 = findBatch(state, batchId);
+    var p0 = b0 ? b0.picks.filter(function (p) { return p.playerId === pid; })[0] : null;
+    var viaNet = !!p0 && netGranted(grantKey(b0, p0.piece));
+    var ok = commit('撤回选择', function (s) {
       var b = findBatch(s, batchId);
       var r = C.unpickFromBatch(b, pid);
       if (!r.ok) throw new Error(r.reason);
       log(s, b.label + '：撤回 ' + nameOf(pid) + ' 的选择（' + describe(r.pick.piece) + '）', true);
       log(s, b.label + '：撤回 ' + nameOf(pid) + ' 的选择');
     });
-    U.toast('已撤回。若玩家已经把物品加进库存，请提醒其手动删除。');
+    if (!ok) return;
+    if (viaNet) U.toast('已撤回：玩家页会自动扣回这件物品', 'ok');
+    else U.toast('已撤回。若玩家已经把物品加进库存，请提醒其手动删除。');
   }
 
   function markOpeningDone(s, b) {
@@ -1730,6 +1785,9 @@
       if (!ok) return;
       var takers = [];
       var label = '';
+      var b0 = findBatch(state, batchId);
+      var viaNet = {};
+      if (b0) b0.picks.forEach(function (p) { if (netGranted(grantKey(b0, p.piece))) viaNet[p.piece.id] = true; });
       var done = commit('撤销发放批次', function (s) {
         var b = findBatch(s, batchId);
         label = b.label;
@@ -1741,8 +1799,11 @@
         log(s, b.label + '：整批撤销，物品已归还公共池' + (takers.length ? '；需手动撤销：' + takers.map(function (t) { return nameOf(t.playerId) + '（' + describe(t.piece) + '）'; }).join('、') : ''), true);
         log(s, b.label + '：整批撤销');
       });
-      if (done && takers.length) {
-        var text = '【发放撤销】' + label + '已撤销。以下玩家请在玩家页手动删除领到的物品：' + takers.map(function (t) { return nameOf(t.playerId) + '（' + describe(t.piece) + '）'; }).join('；') + '。';
+      if (!done) return;
+      var manual = takers.filter(function (t) { return !viaNet[t.piece.id]; });
+      if (manual.length < takers.length) U.toast('已加入房间的玩家：玩家页会自动扣回领到的物品', 'ok');
+      if (manual.length) {
+        var text = '【发放撤销】' + label + '已撤销。以下玩家请在玩家页手动删除领到的物品：' + manual.map(function (t) { return nameOf(t.playerId) + '（' + describe(t.piece) + '）'; }).join('；') + '。';
         showHandoff(text, '需要提醒已领取者手动撤销');
       }
     });
@@ -1868,9 +1929,9 @@
             h('p', { class: 'muted small' }, '玩家选好卡片后会发来一条链接：直接点开，或粘贴到上面的框里。'),
             h('button', { type: 'button', class: 'btn small', onclick: function () { commit('抽取守夜候选', function (s) { drawCandidatesFor(s, pid); }); } }, '主持人代抽两张（玩家无法使用页面时）'));
         }
-        if (cand.source === 'link' || cand.source === 'code') {
+        if (cand.source === 'link' || cand.source === 'code' || cand.source === 'net') {
           return h('div', { class: 'card inset', 'data-planner': pid },
-            h('div', { class: 'row between' }, h('b', null, nameOf(pid)), chip('已提交（链接）', 'ok')),
+            h('div', { class: 'row between' }, h('b', null, nameOf(pid)), chip(cand.source === 'net' ? '已提交（玩家页）' : '已提交（链接）', 'ok')),
             watchCardsRow([{ card: cand.options[cand.chosenIndex], label: '玩家选中的卡' }]),
             h('div', { class: 'row' }, h('button', { type: 'button', class: 'btn small', disabled: !!t.finalWatch, onclick: function () { removeCandidate(cand.id); } }, '移除这份提交')));
         }
@@ -1879,7 +1940,7 @@
           h('div', { class: 'row between' }, h('b', null, nameOf(pid)),
             C.isInt(cand.chosenIndex) ? chip('已提交：' + (cand.chosenIndex ? '②' : '①'), 'ok') : chip('等待回复', '')),
           watchCardsRow(cand.options.map(function (o, i) { return { card: o, label: i ? '②' : '①', selected: cand.chosenIndex === i }; })),
-          h('details', null, h('summary', null, '私信文本'), U.copyBlock(dm, { note: '暂停共享后私发' })),
+          h('details', null, h('summary', null, '私信文本'), U.copyBlock(dm, { note: '暂停共享后私发' }), netDmButton(pid, dm)),
           h('div', { class: 'row' },
             cand.options.map(function (o, i) {
               return h('button', { type: 'button', class: 'btn small ' + (cand.chosenIndex === i ? 'primary' : ''), disabled: !!t.finalWatch, onclick: function () { submitCandidate(cand.id, i); } }, '提交' + (i ? '②' : '①'));
@@ -1930,18 +1991,7 @@
     U.modal({ title: '收到守夜卡片', body: body, wide: true, actions: [{ label: '取消', value: false }, { label: '加入今天的候选池', kind: 'primary', value: true }] }).then(function (ok) {
       if (!ok) return;
       U.writeKey(KEY_SYNC, String(Date.now()));
-      var done = commit('收到守夜卡片', function (s) {
-        if (s.today.finalWatch) throw new Error('今日最终名单已确认');
-        if (s.today.plannerIds.indexOf(pid) < 0) {
-          var rec = C.recordAction(s, pid, { type: 'plan' });
-          if (!rec.ok) s.today.plannerIds.push(pid);
-          log(s, nameOf(pid) + '：计划守夜名单（收到链接时补记）');
-        }
-        s.today.watchCandidates = s.today.watchCandidates.filter(function (c) { return c.plannerId !== pid; });
-        s.today.watchCandidates.push({ id: C.uid('wc'), plannerId: pid, day: s.day, options: [adopted.card], chosenIndex: 0, submittedAt: Date.now(), createdAt: Date.now(), source: 'link' });
-        s.today.watchDecision = null;
-        log(s, nameOf(pid) + ' 发来守夜卡片：' + C.describeWatchOption(adopted.card, nameOf), true);
-      });
+      var done = commit('收到守夜卡片', function (s) { addWatchCandidate(s, pid, adopted.card, 'link', '收到链接时补记'); });
       if (!done) return;
       if (opts.fromLink) { ui.revealed.watch = true; setTab('watch'); }
       U.toast('已加入今天的候选池。同一浏览器里别的主持人标签页会自动重新载入存档。', 'ok');
@@ -2035,6 +2085,7 @@
         subs.map(function (c, i) { return (i + 1) + '. ' + C.describeWatchOption(c.options[c.chosenIndex], nameOf); }).join('；') + '。请私信回复编号。';
       body.push(h('p', null, '收到 ' + subs.length + ' 份提交：由实际座次最后的人 ', h('b', null, decider ? nameOf(decider) : '（无人在座）'), ' 从所有提交中选择最终一份（仅拍板不算计划者）。'));
       body.push(U.copyBlock(dm, { label: '复制给末位的私信', note: '暂停共享后私发；末位回复编号后，点下面对应的按钮' }));
+      body.push(netDmButton(decider, dm));
       body.push(h('div', { class: 'row' }, subs.map(function (c, i) {
         return h('button', {
           type: 'button', class: 'btn small ' + (t.watchDecision === c.id ? 'primary' : ''), onclick: function () {
@@ -2361,14 +2412,19 @@
     var oc = findOutcome(flow);
     var res = flow.resolutionId ? state.resolutions.find(function (r) { return r.id === flow.resolutionId; }) : null;
     var voteSel = U.select([['', '选择 Discord 投票结果…']].concat(ev.options.map(function (o, i) { return [o.id, String.fromCharCode(65 + i) + '. ' + o.label]; })), flow.vote || '', function () {});
+    var manualVote = h('span', { class: 'row' }, voteSel, h('button', { type: 'button', class: 'btn', onclick: function () { if (!voteSel.value) { U.toast('请选择投票结果', 'warn'); return; } setVote(voteSel.value); } }, '录入'));
     return h('section', { class: 'card' },
       h('div', { class: 'card-head' }, h('h2', null, '今日事件结算'), h('span', { class: 'muted small' }, flow.source)),
       eventSummary(ev),
       h('div', { class: 'flow-steps' },
         flowStep('1', '公布事件正文', flow.published ? h('span', null, chip('已公布', 'ok'), ' ', h('button', { type: 'button', class: 'btn small', onclick: unpublishEvent }, '撤下')) :
           h('button', { type: 'button', class: 'btn primary', onclick: publishEvent }, '公布到公开页')),
-        flowStep('2', '录入 Discord 投票结果', flow.vote ? h('span', null, '投票结果：' + (op ? op.label : '?'), ' ', res ? null : h('button', { type: 'button', class: 'btn small', onclick: function () { setVote(null); } }, '修改')) :
-          h('span', { class: 'row' }, voteSel, h('button', { type: 'button', class: 'btn', onclick: function () { if (!voteSel.value) { U.toast('请选择投票结果', 'warn'); return; } setVote(voteSel.value); } }, '录入'))),
+        flowStep('2', flow.netVote ? '玩家页投票' : '录入 Discord 投票结果', h('div', { class: 'stack' },
+          flow.vote ? h('span', null, '投票结果：' + (op ? op.label : '?'), ' ', res ? null : h('button', { type: 'button', class: 'btn small', onclick: function () { setVote(null); } }, '修改')) :
+            flow.netVote && flow.netVote.open ? null : manualVote,
+          netVoteControls(flow),
+          // 玩家页投票进行中：主持人也可以不等投票直接裁定
+          !flow.vote && flow.netVote && flow.netVote.open ? h('details', null, h('summary', null, '不等投票，直接录入结果'), manualVote) : null)),
         op ? flowStep('3', '按该选项的结果概率结算', previewControls(flow, op, st)) : null,
         flow.preview && oc ? flowStep('4', '预览效果', previewEffects(flow, oc, res)) : null,
         res ? flowStep('5', '结算完成', resolutionView(res, flow, oc)) : null),
@@ -2666,11 +2722,13 @@
     });
   }
 
-  function personalNotice(res) {
+  /** viaNet：发到玩家页的版本（玩家点「应用」自动修改自己的存档）。 */
+  function personalNotice(res, viaNet) {
     var personal = C.describePersonalEffects(res.effects.personal, state.customItems);
     var lines = ['【事件结果·第' + res.day + '天】' + res.eventName + '：投票「' + res.optionLabel + '」→ ' + (res.outcomeText || '')];
     if (personal) lines.push('个人效果（对象：' + (res.effects.personal.target || '见主持人说明') + '）：' + personal);
-    lines.push('请相关玩家在玩家页手动修改。主持人端不会修改任何人的私人物品。');
+    if (viaNet) lines.push(personal ? '属于你的个人效果：点「应用」自动修改你的生命、状态与物品。' : '这次没有个人效果，看过即可。');
+    else lines.push('请相关玩家在玩家页手动修改。主持人端不会修改任何人的私人物品。');
     return lines.join('\n');
   }
 
@@ -2679,6 +2737,7 @@
       h('p', null, '结算编号 ', h('code', null, res.id), res.undone ? chip('已撤销', 'danger') : chip('已应用', 'ok')),
       h('p', { class: 'small' }, '营救 ' + (res.applied.rescue ? (res.applied.rescue > 0 ? '+' : '') + res.applied.rescue : '不变') + '；公共池 ' + (res.effects.pool.length ? C.formatItemList(res.effects.pool, state.customItems, true) : '不变')),
       U.copyBlock(personalNotice(res), { label: '复制结果通知', note: '玩家自行录入个人效果' }),
+      net.cfg && !res.undone ? h('div', { class: 'row' }, h('button', { type: 'button', class: 'btn small primary', onclick: function () { netEffectDialog(res); } }, '发到玩家页（可一键应用个人效果）')) : null,
       h('div', { class: 'row' },
         res.public ? chip('结果已公布', 'ok') : h('button', {
           type: 'button', class: 'btn primary', onclick: function () {
@@ -3376,7 +3435,9 @@
       if (!ok) return;
       store.backup(JSON.stringify(state), '导入前自动备份');
       undo.push('导入存档', C.clone(state));
+      undo.peek().rebase = true;
       state = C.normalizeSave(data, 'shelter-host');
+      netRebase();
       log(state, '导入存档');
       save();
       render();
@@ -3401,7 +3462,9 @@
       if (!ok) return;
       store.backup(JSON.stringify(state), '重置前自动备份');
       undo.push('重置存档', C.clone(state));
+      undo.peek().rebase = true;
       state = slot === 'demo' ? buildDemoState() : C.newHostState();
+      netRebase();
       log(state, '重置存档');
       save();
       render();
@@ -3414,6 +3477,7 @@
     undo.clear();
     ui.revealed = {};
     state = loadState();
+    netSwitchSlot();
     save();
     render();
   }
@@ -3446,6 +3510,873 @@
       h('button', { type: 'button', class: 'btn small', onclick: function () { U.downloadJSON('shelter-rules-' + U.stamp() + '.json', pack); } }, '下载规则包'));
   }
 
+  // ================================================================ 联机
+  //
+  // 联机是可选的：不开房间时一切照旧（复制链接、私信文本都保留）。开了房间之后：
+  //   - 公开信息（和公开展示页同样的内容）每次保存后自动推给所有玩家页；
+  //   - 玩家页发来的行动、守夜卡、投票、领取补给、交公由本页按规则记账（记日志；不进撤销栈，撤销别的操作时也不会被撤掉）；
+  //   - 私信、发放的物品、撤回直接送到对应玩家的页面，对方离线时房间先存着，上线再收。
+  // 同一浏览器只让一个标签页联机；另一个标签页或设备顶替后，本页不再处理联机消息。
+
+  var NET_KEY = 'shelter-playtest:host:net:';
+  var NET_LOCK = 'shelter-playtest:host:netlock';
+  var net = { cfg: null, link: null, lock: null, status: 'idle', info: null, online: [], guests: [], bindings: [], snapKey: '', pubTimer: null, feed: [], offers: {}, server: '', pendingBusy: false, seq: 0, journal: [] };
+
+  function netCfgKey() {
+    return NET_KEY + slot;
+  }
+
+  function netBound(pid) {
+    return net.bindings.some(function (b) { return b.pid === pid; });
+  }
+
+  function netReach(pid) {
+    return !!net.link && netBound(pid);
+  }
+
+  function netIsOnline(pid) {
+    return net.online.indexOf(pid) >= 0;
+  }
+
+  function netFeed(text) {
+    net.feed.unshift({ at: Date.now(), text: text });
+    if (net.feed.length > 80) net.feed.length = 80;
+  }
+
+  function netSend(to, m) {
+    return net.link ? net.link.post({ t: 'send', to: to, m: m }) : null;
+  }
+
+  /**
+   * 联机带来的修改（玩家页发来的、已经发出去的）：不进撤销栈，记进联机日志；
+   * 撤销主持人自己的操作时，这些修改会重新套用，不会被一起撤掉。fn 要只改 s、不发消息，校验不过就抛错。
+   */
+  function netCommit(label, fn) {
+    var ok = commit(label, fn, { undo: false });
+    if (ok) {
+      net.seq += 1;
+      net.journal.push({ seq: net.seq, label: label, fn: fn });
+      if (net.journal.length > 400) net.journal.shift();
+    }
+    return ok;
+  }
+
+  // ---------------------------------------------------------------- 补给：发到玩家页、撤回
+
+  function grantKey(b, piece) {
+    return 'g-' + b.id + '-' + piece.id;
+  }
+
+  /** 这件补给是不是已经通过房间发到玩家页（撤回时玩家页会自动扣回）。 */
+  function netGranted(key) {
+    return !!(net.cfg && net.cfg.grants && net.cfg.grants[key]);
+  }
+
+  function heldPicks(s) {
+    var out = {};
+    (s.batches || []).forEach(function (b) {
+      if (b.status === 'undone') return;
+      b.picks.forEach(function (p) { out[grantKey(b, p.piece)] = { b: b, pick: p }; });
+    });
+    return out;
+  }
+
+  /**
+   * 每次改动后对比前后的领取记录：新领到的（玩家已加入房间）发到玩家页、自动入库；
+   * 发出去以后又不算数的（撤回、整批撤销、撤销操作）通知玩家页扣回。领取、撤回、撤销都走这一处。
+   */
+  function netReconcile(prev, next) {
+    if (!net.cfg || !net.link) return;
+    var grants = net.cfg.grants || (net.cfg.grants = {});
+    var before = heldPicks(prev);
+    var after = heldPicks(next);
+    var dirty = false;
+    Object.keys(grants).forEach(function (key) {
+      var g = grants[key];
+      if (after[key] && after[key].pick.playerId === g.pid) return;
+      netSend(g.pid, { kind: 'revoke', grantId: key, items: g.items, reason: '主持人撤回了「' + g.label + '」里领到的这件' });
+      delete grants[key];
+      dirty = true;
+    });
+    Object.keys(after).forEach(function (key) {
+      var x = after[key];
+      var pid = x.pick.playerId;
+      if (grants[key] || (before[key] && before[key].pick.playerId === pid) || !netBound(pid)) return;
+      var items = [C.packItem(x.pick.piece, 1, next.customItems)];
+      var label = x.b.label + '（' + (x.b.day ? '第' + x.b.day + '天' : '开局') + '）';
+      netSend(pid, { kind: 'grant', grantId: key, batchId: x.b.id, items: items, reason: label });
+      grants[key] = { pid: pid, items: items, label: label, at: Date.now() };
+      dirty = true;
+    });
+    if (dirty) ShelterNet.writeJSON(netCfgKey(), net.cfg);
+  }
+
+  /**
+   * 整份存档被换掉（导入、重置，或撤销它们）：领取记录和已经发出去的物品对不上了，
+   * 不自动发放或扣回（不知道玩家手上实际有什么），从这里重新开始记。
+   */
+  function netRebase() {
+    if (!net.cfg || !net.cfg.grants || !Object.keys(net.cfg.grants).length) return;
+    net.cfg.grants = {};
+    ShelterNet.writeJSON(netCfgKey(), net.cfg);
+  }
+
+  function netBoot() {
+    net.lock = new ShelterNet.TabLock(NET_LOCK + ':' + slot);
+    net.cfg = ShelterNet.readJSON(netCfgKey(), null);
+    if (net.cfg && net.cfg.code) {
+      if (net.lock.mine()) netStart();
+      else net.status = 'elsewhere';
+    }
+  }
+
+  /** 切换正式／演示存档：房间跟着存档走。 */
+  function netSwitchSlot() {
+    if (net.link) net.link.stop();
+    net.link = null;
+    net.status = 'idle';
+    net.bindings = [];
+    net.online = [];
+    net.guests = [];
+    net.journal = [];
+    net.offers = {};
+    if (net.lock) net.lock.release();
+    netBoot();
+  }
+
+  function netStart() {
+    if (net.link) net.link.stop();
+    var cfg = net.cfg;
+    net.lock.take();
+    net.snapKey = '';
+    net.offers = {};
+    net.link = new ShelterNet.Link({
+      base: cfg.base, code: cfg.code, store: 'shelter-playtest:host:netq:' + cfg.code,
+      hello: function () { return { role: 'host', key: cfg.hostKey }; },
+      onMessage: netReceive,
+      on: netEvent
+    });
+    net.link.start();
+  }
+
+  /** 断开：本页不再联机，房间还在（之后可以重新连上）。 */
+  function netDisconnect() {
+    if (net.link) net.link.stop();
+    net.link = null;
+    net.status = 'idle';
+    if (net.lock) net.lock.release();
+    render();
+  }
+
+  function netCreate() {
+    var base = ShelterNet.serverBase(net.server);
+    ui.netBusy = true;
+    render();
+    ShelterNet.createRoom(base).then(function (r) {
+      ui.netBusy = false;
+      net.cfg = { base: base, code: r.code, hostKey: r.hostKey, auto: true, createdAt: Date.now() };
+      ShelterNet.writeJSON(netCfgKey(), net.cfg);
+      netStart();
+      netFeed('房间已开好：' + r.code);
+      U.toast('房间已开好：' + r.code, 'ok');
+      render();
+    }, function (err) {
+      ui.netBusy = false;
+      render();
+      U.modal({
+        title: '连不上联机服务器',
+        body: h('div', { class: 'stack' },
+          h('p', null, '服务器：' + base + '（' + (err && err.message ? err.message : '网络错误') + '）'),
+          ShelterNet.lan()
+            ? h('p', null, '局域网服务器好像没有在运行：请确认主持人电脑上的 shelter-lan 窗口还开着。')
+            : h('p', null, '云端服务器还没部署，或者当前网络连不上它。也可以用局域网版：在入口页下载 shelter-lan.mjs，在主持人电脑上运行。'))
+      });
+    });
+  }
+
+  function netEnd() {
+    U.confirmBox('关闭房间？', '所有玩家会断开，房间里暂存的消息一并删除。游戏存档不受影响，之后可以再开新房间。', '关闭房间', 'danger').then(function (ok) {
+      if (!ok) return;
+      if (net.link) {
+        net.link.raw({ t: 'end' });
+        net.link.forget();
+        net.link.stop();
+      }
+      netForget();
+      U.toast('房间已关闭', 'ok');
+    });
+  }
+
+  function netForget() {
+    net.link = null;
+    net.cfg = null;
+    net.status = 'idle';
+    net.bindings = [];
+    net.online = [];
+    net.guests = [];
+    ShelterNet.removeKey(netCfgKey());
+    if (net.lock) net.lock.release();
+    render();
+  }
+
+  /** 收到网络事件时重画；正在输入时先只画顶栏，离开输入框后再画主体（不打断打字）。 */
+  function netQuietRender() {
+    ui.quietRender = true;
+    try { render(); } finally { ui.quietRender = false; }
+  }
+
+  function netEvent(type, d) {
+    if (type === 'status') {
+      net.status = d.status;
+      net.info = d.info;
+      if (d.status === 'stopped') netStopped(d.info);
+      else netQuietRender();
+      return;
+    }
+    if (type === 'welcome') {
+      net.bindings = d.players || [];
+      net.online = d.online || [];
+      net.guests = d.guests || [];
+      netPublish(true);
+      netSyncOffers(true);
+      netQuietRender();
+      return;
+    }
+    if (type === 'presence') {
+      net.online = d.online || [];
+      net.guests = d.guests || [];
+      netPublish(false);
+      netQuietRender();
+      return;
+    }
+    if (type === 'join') { netJoin(d); return; }
+    if (type === 'bound') {
+      // 新加入或换了设备（boundAt 变了）：发规则包
+      var before = {};
+      net.bindings.forEach(function (b) { before[b.pid] = b.boundAt; });
+      net.bindings = d.players || [];
+      net.bindings.forEach(function (b) { if (before[b.pid] !== b.boundAt) netWelcome(b.pid); });
+      netPublish(false);
+      netSyncOffers(true);
+      netQuietRender();
+      return;
+    }
+    if (type === 'error') U.toast(d.message || d.code, 'warn');
+  }
+
+  function netStopped(code) {
+    var text = {
+      replaced: '联机已转到另一个标签页或设备：本页不再处理联机消息。',
+      'bad-key': '这个房间的主持人密钥不对，已经离开房间。',
+      'no-room': '房间不存在或已经过期，已经离开房间。',
+      ended: '房间已经关闭。',
+      version: '页面版本和联机服务器不一致：请刷新页面。'
+    }[code] || ('联机已停止（' + code + '）');
+    if (code === 'no-room' || code === 'ended' || code === 'bad-key') {
+      if (net.link) net.link.forget();
+      netForget();
+    } else if (code === 'replaced') {
+      net.link = null;
+      net.status = 'elsewhere';
+    }
+    U.toast(text, 'warn');
+    render();
+  }
+
+  // ---------------------------------------------------------------- 加入
+
+  function netJoin(d) {
+    var p = d.pid ? playerById(d.pid) : null;
+    var who = d.name || (p && p.name) || '有人';
+    if (net.cfg && net.cfg.auto && p && !netBound(p.id)) {
+      net.link.raw({ t: 'approve', gid: d.gid, pid: p.id });
+      netFeed(p.name + ' 加入了房间');
+      U.toast(p.name + ' 加入了房间', 'ok');
+      return;
+    }
+    netFeed(who + ' 请求加入，等你通过');
+    U.toast(who + ' 请求加入：到「联机」页通过', 'info');
+    netQuietRender();
+  }
+
+  function netApprove(gid, pid) {
+    if (net.link && net.link.raw({ t: 'approve', gid: gid, pid: pid })) netFeed(nameOf(pid) + ' 加入了房间');
+  }
+
+  function netReject(gid) {
+    if (net.link) net.link.raw({ t: 'reject', gid: gid, reason: '主持人没有通过' });
+  }
+
+  function netKick(pid) {
+    U.confirmBox('移出 ' + nameOf(pid) + '？', '这台设备会断开，加入凭证作废；以后可以重新加入（例如换手机时）。', '移出', 'danger').then(function (ok) {
+      if (!ok || !net.link) return;
+      net.link.raw({ t: 'kick', pid: pid });
+      netFeed('移出 ' + nameOf(pid));
+    });
+  }
+
+  /** 新加入的玩家：发规则包（规则、自定义物品、玩家名单），玩家页自动导入。 */
+  function netWelcome(pid) {
+    netSend(pid, { kind: 'rules', pack: C.makeRulesPack(state, null) });
+  }
+
+  function netResendRules() {
+    net.bindings.forEach(function (b) { netWelcome(b.pid); });
+    U.toast('规则包已排队发给 ' + net.bindings.length + ' 位玩家', 'ok');
+  }
+
+  // ---------------------------------------------------------------- 公开信息、补给邀请、自动记录行动（每次保存后）
+
+  function netAfterSave() {
+    if (!net.link) return;
+    netPublish(false);
+    netSyncOffers(false);
+    netPendingActions();
+  }
+
+  function netPublish(force) {
+    if (!net.link || net.status !== 'online') return;
+    clearTimeout(net.pubTimer);
+    net.pubTimer = setTimeout(function () {
+      if (!net.link) return;
+      var snap = C.publicSnapshot(state, Date.now());
+      snap.joined = net.bindings.map(function (b) { return b.pid; });
+      snap.online = net.online.slice();
+      var tm = state.timer;
+      var key = JSON.stringify(Object.assign({}, snap, { at: 0, timer: { running: tm.running, endsAt: tm.endsAt, remainingMs: tm.running ? 0 : tm.remainingMs, durationMs: tm.durationMs } }));
+      if (!force && key === net.snapKey) return;
+      if (net.link.raw({ t: 'pub', s: snap })) net.snapKey = key;
+    }, force ? 0 : 200);
+  }
+
+  function nextPicker(b) {
+    return b.pickOrder.filter(function (id) { return !b.picks.some(function (p) { return p.playerId === id; }); })[0] || null;
+  }
+
+  /** 补给批次：轮到谁领，就把候选清单发到谁的页面；批次结束或换人时收回。 */
+  function netSyncOffers(force) {
+    if (!net.link) return;
+    var live = {};
+    state.batches.filter(function (b) { return b.status === 'open'; }).forEach(function (b) {
+      var next = nextPicker(b);
+      if (!next || !netBound(next)) return;
+      var key = b.id + ':' + next + ':' + b.items.map(function (p) { return p.id; }).join(',');
+      live[b.id] = key;
+      var prev = net.offers[b.id];
+      if (!force && prev === key) return;
+      if (prev && prev.split(':')[1] !== next) netSend(prev.split(':')[1], { kind: 'offer-cancel', batchId: b.id });
+      net.offers[b.id] = key;
+      netSend(next, {
+        kind: 'offer', batchId: b.id, label: b.label, dayText: b.day ? '第' + b.day + '天' : '开局',
+        items: b.items.map(function (p) { return { id: p.id, name: describe(p) }; })
+      });
+    });
+    Object.keys(net.offers).forEach(function (bid) {
+      if (live[bid]) return;
+      netSend(net.offers[bid].split(':')[1], { kind: 'offer-cancel', batchId: bid });
+      delete net.offers[bid];
+    });
+  }
+
+  /** 轮到谁、谁在玩家页已经选好行动：自动记录（下一个人也选好了就接着记）。 */
+  function netPendingActions() {
+    var t = state.today;
+    if (net.pendingBusy || state.phase !== 'actions' || !t.actionOrder || !t.netPending) return;
+    var cur = C.nextActor(t.actionOrder, t.actedIds);
+    if (!cur || !t.netPending[cur]) return;
+    net.pendingBusy = true;
+    setTimeout(function () {
+      net.pendingBusy = false;
+      var t2 = state.today;
+      if (state.phase !== 'actions' || !t2.actionOrder || !t2.netPending || !t2.netPending[cur] || C.nextActor(t2.actionOrder, t2.actedIds) !== cur) return;
+      var type = t2.netPending[cur].type;
+      ui.quietRender = true;
+      var ok;
+      try {
+        ok = netCommit('记录行动（玩家页）', function (s) {
+          var tt = s.today;
+          if (s.phase !== 'actions' || !tt.actionOrder || !tt.netPending || !tt.netPending[cur] || C.nextActor(tt.actionOrder, tt.actedIds) !== cur) throw new Error('还没轮到 ' + nameOf(cur));
+          var p = tt.netPending[cur];
+          var r = C.recordAction(s, cur, { type: p.type, note: p.note });
+          if (!r.ok) throw new Error(r.reason);
+          r.action.via = 'net';
+          delete tt.netPending[cur];
+          log(s, nameOf(cur) + '：' + actionText({ type: p.type }) + '（玩家页）');
+          if (p.note) log(s, nameOf(cur) + ' 行动备注：' + p.note, true);
+        });
+      } finally {
+        ui.quietRender = false;
+      }
+      if (ok) U.toast(nameOf(cur) + '：' + actionText({ type: type }), 'ok');
+    }, 0);
+  }
+
+  // ---------------------------------------------------------------- 玩家页发来的
+
+  function netReceive(e) {
+    var m = e.m || {};
+    ui.quietRender = true;
+    try {
+      if (e.cc) return netCopy(e);
+      var pid = e.from;
+      if (!playerById(pid)) { netFeed('收到不在名单里的玩家发来的消息，已忽略'); return true; }
+      switch (m.kind) {
+        case 'action': return netAction(pid, m);
+        case 'action-cancel': return netActionCancel(pid);
+        case 'watch': return netWatch(pid, m);
+        case 'vote': return netVote(pid, m);
+        case 'supply-pick': return netSupplyPick(pid, m);
+        case 'deposit': return netDeposit(pid, m);
+        case 'note': return netNote(pid, m);
+        default:
+          netFeed(nameOf(pid) + ' 发来看不懂的消息（' + m.kind + '）：可能需要刷新页面');
+          return true;
+      }
+    } finally {
+      ui.quietRender = false;
+    }
+  }
+
+  /** 玩家之间的赠予、治疗：房间给主持人留的副本，只记日志。 */
+  function netCopy(e) {
+    var m = e.m || {};
+    var desc = m.kind === 'gift' ? '赠予 ' + nameOf(e.cc) + '：' + C.describeItems(m.items, state.customItems)
+      : m.kind === 'heal' ? '治疗 ' + nameOf(e.cc) + '：' + (m.text || '') : String(m.kind || '');
+    var line = nameOf(e.from) + ' ' + desc;
+    netFeed(line);
+    netCommit('联机记录', function (s) { log(s, line + '（玩家之间）', true); });
+    return true;
+  }
+
+  function netAction(pid, m) {
+    var label = actionText({ type: m.type });
+    if (['plan', 'skill', 'other', 'pass', 'swap'].indexOf(m.type) < 0) return true;
+    if (!state.started || m.day !== state.day) {
+      netFeed(nameOf(pid) + ' 上报的「' + label + '」不是今天的行动，没有记录');
+      netSend(pid, { kind: 'text', text: '主持人页没有记录你的行动：' + (state.started ? '你的页面天数和主持人不一致，请等页面同步后再选。' : '游戏还没开始。') });
+      return true;
+    }
+    if (m.type === 'swap') {
+      netFeed(nameOf(pid) + ' 想尝试换位：请在主持台用「换位请求」记录');
+      U.toast(nameOf(pid) + ' 想尝试换位：请用「换位请求」记录', 'info');
+      netSend(pid, { kind: 'text', text: '换位要双方同意：轮到你时告诉主持人想和谁换，由主持人记录结果。' });
+      return true;
+    }
+    if (state.today.actedIds.indexOf(pid) >= 0) {
+      netFeed(nameOf(pid) + ' 在玩家页改成了「' + label + '」：本轮已有记录，要改请先撤销');
+      U.toast(nameOf(pid) + ' 改了行动：本轮已有记录，要改请先撤销', 'warn');
+      netSend(pid, { kind: 'text', text: '你今天的行动已经记录，改成「' + label + '」没有生效：要改请直接找主持人。' });
+      return true;
+    }
+    netCommit('玩家页行动', function (s) {
+      if (!s.started || s.day !== m.day || s.today.actedIds.indexOf(pid) >= 0) throw new Error('本轮已有记录');
+      s.today.netPending = s.today.netPending || {};
+      s.today.netPending[pid] = { type: m.type, note: String(m.note || '').slice(0, 200), at: Date.now() };
+      log(s, nameOf(pid) + ' 在玩家页选了「' + label + '」', true);
+    });
+    var t = state.today;
+    netFeed(nameOf(pid) + ' 选了「' + label + '」' + (state.phase === 'actions' && t.actionOrder && C.nextActor(t.actionOrder, t.actedIds) === pid ? '' : '（轮到时自动记录）'));
+    netPendingActions();
+    return true;
+  }
+
+  function netActionCancel(pid) {
+    var t = state.today;
+    if (t.netPending && t.netPending[pid]) {
+      netCommit('玩家页取消行动', function (s) {
+        if (!s.today.netPending || !s.today.netPending[pid]) return false;
+        delete s.today.netPending[pid];
+        log(s, nameOf(pid) + ' 在玩家页取消了行动', true);
+      });
+      netFeed(nameOf(pid) + ' 取消了还没记录的行动');
+      return true;
+    }
+    if (t.actedIds.indexOf(pid) >= 0) {
+      netFeed(nameOf(pid) + ' 在玩家页取消了行动：本轮已经记录，需要的话请手动撤销');
+      U.toast(nameOf(pid) + ' 取消了行动：本轮已经记录，需要的话请手动撤销', 'warn');
+    }
+    return true;
+  }
+
+  /** 把一张守夜卡加进今天的候选池（链接、玩家页发来的都走这里）。 */
+  function addWatchCandidate(s, pid, card, source, how) {
+    if (s.today.finalWatch) throw new Error('今日最终名单已确认');
+    if (s.today.plannerIds.indexOf(pid) < 0) {
+      var rec = C.recordAction(s, pid, { type: 'plan' });
+      if (!rec.ok) s.today.plannerIds.push(pid);
+      log(s, nameOf(pid) + '：计划守夜名单（' + how + '）');
+    }
+    if (s.today.netPending) delete s.today.netPending[pid];
+    s.today.watchCandidates = s.today.watchCandidates.filter(function (c) { return c.plannerId !== pid; });
+    s.today.watchCandidates.push({ id: C.uid('wc'), plannerId: pid, day: s.day, options: [card], chosenIndex: 0, submittedAt: Date.now(), createdAt: Date.now(), source: source });
+    s.today.watchDecision = null;
+    log(s, nameOf(pid) + ' 发来守夜卡片：' + C.describeWatchOption(card, nameOf), true);
+  }
+
+  function netWatch(pid, m) {
+    var data = m.data || {};
+    var card = data.card;
+    if (!card || typeof card !== 'object') return true;
+    if (state.today.finalWatch) {
+      netSend(pid, { kind: 'text', text: '今天的守夜名单已经确认，你的卡片没有加进候选。' });
+      return true;
+    }
+    var adopted = card.v === 2 ? C.adoptWatchCardV2(card, state.players) : C.adoptWatchCard(card, state.players);
+    var ok = netCommit('收到守夜卡片（玩家页）', function (s) { addWatchCandidate(s, pid, adopted.card, 'net', '玩家页发来时补记'); });
+    if (ok) {
+      netFeed('收到 ' + nameOf(pid) + ' 的守夜卡片' + (data.day !== state.day ? '（注意：这张卡不是今天抽的）' : ''));
+      U.toast('收到 ' + nameOf(pid) + ' 的守夜卡片', 'ok');
+    }
+    return true;
+  }
+
+  function netVote(pid, m) {
+    var f = state.today.eventFlow;
+    if (!f || f.id !== m.flowId || !f.netVote || !f.netVote.open) {
+      netSend(pid, { kind: 'text', text: '这次投票已经结束，你的票没有计入。' });
+      return true;
+    }
+    var op = f.event.options.filter(function (o) { return o.id === m.optionId; })[0];
+    if (!op) return true;
+    if (!isAlive(pid)) {
+      netSend(pid, { kind: 'text', text: '已死亡的玩家不能投票。' });
+      return true;
+    }
+    netCommit('投票（玩家页）', function (s) {
+      var ff = s.today.eventFlow;
+      if (!ff || ff.id !== m.flowId || !ff.netVote || !ff.netVote.open) throw new Error('投票已经结束');
+      ff.netVote.ballots[pid] = op.id;
+      log(s, '投票：' + nameOf(pid) + ' 选「' + op.label + '」', true);
+    });
+    netFeed(nameOf(pid) + ' 投了票');
+    return true;
+  }
+
+  function netSupplyPick(pid, m) {
+    var b = state.batches.filter(function (x) { return x.id === m.batchId; })[0];
+    var fail = function (reason) {
+      netSend(pid, { kind: 'pick-fail', batchId: m.batchId, reason: reason });
+      netFeed(nameOf(pid) + ' 领取没成功：' + reason);
+    };
+    if (!b || b.status !== 'open') { fail('这批补给已经结束'); return true; }
+    var next = nextPicker(b);
+    if (next !== pid) { fail(next ? '还没轮到你：现在轮到 ' + nameOf(next) : '这批补给已经领完'); return true; }
+    var picked = null;
+    // 领到的物品在 commit 里（netReconcile）发到玩家页
+    var ok = netCommit('领取补给（玩家页）', function (s) {
+      var bb = findBatch(s, m.batchId);
+      if (!bb || bb.status !== 'open' || nextPicker(bb) !== pid) throw new Error('还没轮到 ' + nameOf(pid) + ' 领取');
+      var r = C.pickFromBatch(bb, pid, m.pieceId);
+      if (!r.ok) throw new Error(r.reason);
+      picked = r.pick;
+      log(s, bb.label + '：' + nameOf(pid) + ' 选择 ' + describe(r.pick.piece) + '（玩家页）', true);
+      log(s, bb.label + '：' + nameOf(pid) + ' 已领取');
+      if (!bb.items.length && bb.picks.length === bb.pickOrder.length) markOpeningDone(s, bb);
+    });
+    if (!ok || !picked) {
+      fail('这件已经被选走或不在候选里：请重新选');
+      netSyncOffers(true);
+      return true;
+    }
+    netFeed(nameOf(pid) + ' 领取了 ' + describe(picked.piece));
+    return true;
+  }
+
+  function netDeposit(pid, m) {
+    var items = (m.items || []).filter(function (it) { return it && typeof it.defId === 'string' && C.isInt(it.qty) && it.qty > 0; });
+    if (!items.length) return true;
+    var what = C.describeItems(items, state.customItems);
+    var ok = netCommit('交公（玩家页）', function (s) {
+      items.forEach(function (it) {
+        if (it.def && C.getDef(it.defId, s.customItems).unknown) {
+          var def = C.clone(it.def);
+          def.id = it.defId;
+          s.customItems.push(def);
+        }
+        C.addItem(s.pool, it.defId, it.qty, { customItems: s.customItems, rules: s.rules, fields: it.fields, remark: it.remark });
+      });
+      log(s, nameOf(pid) + ' 交给公共池：' + what + (m.reason ? '（' + String(m.reason).slice(0, 60) + '）' : '') + '（玩家页）', true);
+      log(s, '公共池收到交公：' + nameOf(pid));
+    });
+    if (ok) {
+      netFeed(nameOf(pid) + ' 交公：' + what);
+      U.toast(nameOf(pid) + ' 交公：' + what, 'ok');
+    }
+    return true;
+  }
+
+  function netNote(pid, m) {
+    var text = String(m.text || '').slice(0, 500);
+    if (!text) return true;
+    netFeed(nameOf(pid) + '：' + text);
+    U.toast(nameOf(pid) + '：' + text, 'info');
+    netCommit('玩家留言', function (s) { log(s, nameOf(pid) + ' 发来：' + text, true); });
+    return true;
+  }
+
+  // ---------------------------------------------------------------- 投票（事件结算第 2 步）
+
+  function netVoteControls(flow) {
+    if (!net.cfg) return null;
+    var nv = flow.netVote;
+    if (!flow.published) return h('p', { class: 'muted small' }, '公布事件正文后，可以让玩家直接在自己的页面投票。');
+    if (!nv) return h('button', { type: 'button', class: 'btn', onclick: netOpenVote }, '在玩家页面发起投票');
+    var tally = C.tallyVotes(flow.event.options, nv.ballots);
+    var reach = aliveIds().filter(netBound).length;
+    return h('div', { class: 'card inset net-vote' },
+      h('div', { class: 'row between' }, h('b', null, nv.open ? '玩家页投票进行中' : '玩家页投票已结束'), chip('已投 ' + tally.total + '／' + aliveIds().length, nv.open ? 'info' : 'ok')),
+      nv.open && reach < aliveIds().length ? h('p', { class: 'muted small' }, '在房间里的存活玩家：' + reach + '／' + aliveIds().length + '。他们可以在自己的页面投；其余玩家照常在 Discord 投，由主持人合并后直接录入结果。') : null,
+      h('ul', { class: 'list-plain' }, flow.event.options.map(function (o, i) {
+        var who = Object.keys(nv.ballots).filter(function (pid) { return nv.ballots[pid] === o.id; });
+        return h('li', { 'data-vote-option': o.id }, h('b', null, String.fromCharCode(65 + i) + '. ' + o.label), '：' + tally.counts[o.id] + ' 票',
+          who.length ? h('span', { class: 'muted small' }, '（' + names(who) + '）') : null);
+      })),
+      nv.open
+        ? h('div', { class: 'row' }, h('button', { type: 'button', class: 'btn primary', onclick: netCloseVote }, '结束投票并采用结果'))
+        : h('div', { class: 'row' },
+          tally.top.length !== 1 ? h('span', { class: 'risk-text' }, tally.top.length ? '平票：请主持人裁定（用上面的选择框录入）' : '没有人投票：请主持人裁定') : null,
+          h('button', { type: 'button', class: 'btn small', disabled: !!flow.resolutionId, onclick: netReopenVote }, '重新投票')));
+  }
+
+  function netOpenVote() {
+    commit('发起投票', function (s) {
+      var f = s.today.eventFlow;
+      f.netVote = { open: true, openedAt: Date.now(), closedAt: null, ballots: {} };
+      log(s, '在玩家页发起投票：' + f.event.name);
+    });
+  }
+
+  function netCloseVote() {
+    var top = null;
+    commit('结束投票', function (s) {
+      var f = s.today.eventFlow;
+      f.netVote.open = false;
+      f.netVote.closedAt = Date.now();
+      var t = C.tallyVotes(f.event.options, f.netVote.ballots);
+      log(s, '投票结束：' + f.event.options.map(function (o) { return o.label + ' ' + t.counts[o.id] + ' 票'; }).join('，'));
+      if (t.top.length === 1 && !f.resolutionId) {
+        top = f.event.options.filter(function (o) { return o.id === t.top[0]; })[0];
+        f.vote = top.id;
+        f.preview = null;
+        f.override = null;
+        log(s, '投票结果：' + f.event.name + ' → ' + top.label);
+      }
+    });
+    if (top) U.toast('按多数票录入：' + top.label, 'ok');
+    else U.toast('平票或没有人投票：请主持人裁定', 'warn');
+  }
+
+  function netReopenVote() {
+    commit('重新投票', function (s) {
+      var f = s.today.eventFlow;
+      f.netVote = { open: true, openedAt: Date.now(), closedAt: null, ballots: {} };
+      f.vote = null;
+      f.preview = null;
+      f.override = null;
+      log(s, '重新在玩家页投票：' + f.event.name);
+    });
+  }
+
+  /** 公开页上的事件是否在玩家页投票（决定显示「玩家页投票」还是「Discord 投票」）。 */
+  function netVoteOpen() {
+    var f = state.today.eventFlow;
+    return !!(f && f.netVote && state.stage.event && state.stage.event.flowId === f.id);
+  }
+
+  /** 公开展示页上的投票进度：进行中只显示已投人数，结束后显示票数。 */
+  function netVoteStage() {
+    var f = state.today.eventFlow;
+    if (!netVoteOpen()) return null;
+    var tally = C.tallyVotes(f.event.options, f.netVote.ballots);
+    if (f.netVote.open) return h('p', { class: 'net-vote-stage' }, '玩家页投票中：已投 ' + tally.total + '／' + aliveIds().length);
+    return h('p', { class: 'net-vote-stage' }, '投票结果：' + f.event.options.map(function (o, i) { return String.fromCharCode(65 + i) + ' ' + tally.counts[o.id] + ' 票'; }).join('　'));
+  }
+
+  // ---------------------------------------------------------------- 私信
+
+  function netSendText(to, text) {
+    if (!net.link) return;
+    netSend(to, { kind: 'text', text: text });
+    netCommit('联机私信', function (s) { log(s, '私信 ' + (to === '*' ? '所有玩家' : nameOf(to)) + '：' + text, true); });
+    netFeed('私信 ' + (to === '*' ? '所有玩家' : nameOf(to)) + '：' + text);
+    U.toast(to === '*' ? '已交给房间：所有已加入的玩家都会收到' : '已交给房间：' + nameOf(to) + ' 会收到', 'ok');
+  }
+
+  /** 已经写好的私信文本：对方已加入房间时，多一个「直接发到他的玩家页」。 */
+  function netDmButton(pid, text) {
+    if (!pid || !netReach(pid)) return null;
+    return h('button', { type: 'button', class: 'btn small primary', onclick: function () { netSendText(pid, text); } }, '直接发到 ' + nameOf(pid) + ' 的玩家页');
+  }
+
+  /** 事件结果：把个人效果发给指定玩家，玩家在收件箱里点「应用」。 */
+  function netEffectDialog(res) {
+    var bound = state.players.filter(function (p) { return netBound(p.id); });
+    if (!bound.length) { U.toast('还没有玩家加入房间', 'warn'); return; }
+    var chosen = {};
+    var list = h('div', { class: 'row' }, bound.map(function (p) {
+      var box = h('input', { type: 'checkbox', onchange: function () { chosen[p.id] = box.checked; } });
+      return h('label', { class: 'check' }, box, p.name);
+    }));
+    U.modal({
+      title: '把事件结果发给玩家',
+      body: h('div', { class: 'stack' },
+        h('p', { class: 'muted small' }, '勾选受影响的玩家：他们的收件箱会收到结果通知；有个人效果时，玩家点「应用」就会自动改自己的生命、状态与物品。'),
+        list,
+        h('pre', { class: 'code' }, personalNotice(res, true))),
+      actions: [{ label: '取消', value: false }, { label: '发送', kind: 'primary', value: true }]
+    }).then(function (ok) {
+      if (!ok) return;
+      var to = Object.keys(chosen).filter(function (k) { return chosen[k]; });
+      if (!to.length) { U.toast('没有勾选玩家', 'warn'); return; }
+      to.forEach(function (pid) { netSend(pid, { kind: 'effect', resId: res.id, text: personalNotice(res, true), personal: C.clone(res.effects.personal || {}) }); });
+      netCommit('发送事件结果', function (s) { log(s, '把事件结果 ' + res.id + ' 发给：' + names(to), true); });
+      U.toast('已交给房间：' + names(to) + ' 会收到', 'ok');
+    });
+  }
+
+  // ---------------------------------------------------------------- 「联机」页
+
+  function netStatusText() {
+    var map = {
+      online: ['在线', 'ok'], connecting: ['连接中…', 'info'], reconnecting: ['重连中…', 'warn'], lobby: ['连接中…', 'info'],
+      idle: ['未连接', ''], stopped: ['已停止', 'danger'], elsewhere: ['在另一个标签页联机', 'info']
+    };
+    var x = map[net.status] || [net.status, ''];
+    return { text: x[0], cls: x[1] };
+  }
+
+  /** 顶栏上的小标签：有房间时显示房间码和在线人数，点了去「联机」页。 */
+  function netChip() {
+    if (!net.cfg) return null;
+    var st = netStatusText();
+    return h('button', { type: 'button', class: 'net-chip st-' + net.status, onclick: function () { setTab('net'); }, title: '联机房间 ' + net.cfg.code },
+      h('span', { class: 'net-dot' }), '联机 ' + net.cfg.code + ' · ' + (net.status === 'online' ? '在线 ' + net.online.length + '／' + state.players.length : st.text));
+  }
+
+  function renderNet() {
+    return h('div', { class: 'stack net-page' },
+      netRoomCard(),
+      net.cfg ? netPlayersCard() : null,
+      net.cfg ? gate('netmsg', '私信与联机记录', function () { return h('div', { class: 'stack' }, netComposeCard(), netFeedCard()); }) : null,
+      netHelpCard());
+  }
+
+  function netRoomCard() {
+    var cfg = net.cfg;
+    if (!cfg) {
+      var lanInfo = ShelterNet.lan();
+      var custom = h('input', { type: 'text', value: net.server || '', placeholder: ShelterNet.DEFAULT_SERVER });
+      custom.addEventListener('change', function () { net.server = custom.value.trim(); render(); });
+      return h('section', { class: 'card net-room' },
+        h('div', { class: 'card-head' }, h('h2', null, '联机房间'), chip('未联机', '')),
+        h('p', null, '开一个房间，玩家扫码或点链接加入后：公开信息实时显示在玩家手机上；行动、守夜卡、投票、领取补给、交公直接送到这里；私信和发放的物品直接送到玩家页面。不开房间时一切照旧。'),
+        h('p', { class: 'muted small' }, lanInfo
+          ? '这个页面是局域网服务器打开的：房间开在这台电脑上，玩家要连同一个网络。'
+          : '房间开在云端服务器（' + ShelterNet.serverBase(net.server).replace(/^https?:\/\//, '') + '）。'),
+        h('div', { class: 'row' }, h('button', { type: 'button', class: 'btn primary', disabled: !!ui.netBusy || !state.players.length, onclick: netCreate }, ui.netBusy ? '正在开房间…' : '开房间')),
+        state.players.length ? null : h('p', { class: 'muted small' }, '先在「设置与存档」登记玩家：玩家加入时要从名单里选自己的名字。'),
+        lanInfo ? null : h('details', null, h('summary', null, '自定义服务器地址（一般不用改）'), U.field('服务器', custom, '留空＝默认云端服务器')));
+    }
+    var link = ShelterNet.joinLink(cfg.code, cfg.base);
+    var qr = ShelterNet.qrSvg(link, 180);
+    var st = netStatusText();
+    var auto = h('input', { type: 'checkbox', checked: !!cfg.auto, onchange: function () { cfg.auto = auto.checked; ShelterNet.writeJSON(netCfgKey(), cfg); } });
+    var showJoin = h('input', { type: 'checkbox', checked: !!state.stage.showJoin, onchange: function () { commit('公开展示二维码', function (s) { s.stage.showJoin = showJoin.checked; }, { undo: false }); } });
+    var connected = net.link && net.status !== 'stopped';
+    return h('section', { class: 'card net-room' },
+      h('div', { class: 'card-head' }, h('h2', null, '联机房间'), chip(st.text, st.cls)),
+      h('div', { class: 'net-join' },
+        qr ? h('div', { class: 'net-qr', 'aria-label': '加入二维码' }, qr) : null,
+        h('div', { class: 'stack grow' },
+          h('div', null, h('span', { class: 'muted small' }, '房间码'), h('div', { class: 'net-code' }, cfg.code)),
+          U.copyBlock(link, { label: '复制加入链接', rows: 2, note: '发到 Discord，玩家点开即可加入' }),
+          h('label', { class: 'check' }, auto, '自动通过加入请求（名字在名单里、还没人用时）'),
+          h('label', { class: 'check' }, showJoin, '在公开展示页显示二维码'))),
+      h('div', { class: 'row' },
+        connected ? h('button', { type: 'button', class: 'btn', onclick: netDisconnect }, '断开（保留房间）')
+          : h('button', { type: 'button', class: 'btn primary', onclick: function () { netStart(); render(); } }, net.status === 'elsewhere' ? '改在本页联机' : '重新连接'),
+        h('button', { type: 'button', class: 'btn danger', onclick: netEnd }, '关闭房间')),
+      h('p', { class: 'muted small' }, '服务器：' + cfg.base.replace(/^https?:\/\//, '') + (net.status !== 'online' && net.link && net.link.pending() ? ' · 待发 ' + net.link.pending() + ' 条（连上后自动补发）' : '')));
+  }
+
+  function netPlayersCard() {
+    return h('section', { class: 'card' },
+      h('div', { class: 'card-head' }, h('h2', null, '玩家加入情况'), h('span', { class: 'muted small' }, '已加入 ' + net.bindings.length + '／' + state.players.length + ' · 在线 ' + net.online.length)),
+      net.guests.length ? h('div', { class: 'stack net-guests' }, h('h3', null, '等待通过'), net.guests.map(function (g) {
+        var match = state.players.filter(function (p) { return p.id === g.pid || p.name === g.name; })[0];
+        var pid = match ? match.id : (state.players[0] && state.players[0].id);
+        var sel = U.select(state.players.map(function (p) { return [p.id, p.name + (netBound(p.id) ? '（已有设备）' : '')]; }), pid, function (v) { pid = v; });
+        return h('div', { class: 'row net-guest', 'data-guest': g.gid },
+          h('span', null, '申请的名字：', h('b', null, g.name || (g.pid ? nameOf(g.pid) : '（没填）'))),
+          U.field('绑定到', sel),
+          h('button', { type: 'button', class: 'btn small primary', onclick: function () { netApprove(g.gid, pid); } }, '通过请求'),
+          h('button', { type: 'button', class: 'btn small', onclick: function () { netReject(g.gid); } }, '拒绝'));
+      })) : null,
+      h('div', { class: 'table-wrap' }, h('table', { class: 'tbl' },
+        h('thead', null, h('tr', null, h('th', null, '玩家'), h('th', null, '状态'), h('th', null, '操作'))),
+        h('tbody', null, state.players.map(function (p) {
+          var bound = netBound(p.id);
+          var on = netIsOnline(p.id);
+          return h('tr', { 'data-net-player': p.id },
+            h('td', null, p.name, p.alive === false ? chip('已死亡', 'danger') : null),
+            h('td', null, bound ? chip(on ? '已加入 · 在线' : '已加入 · 离线', on ? 'ok' : '') : chip('未加入', '')),
+            h('td', null, bound ? h('button', { type: 'button', class: 'btn small', onclick: function () { netKick(p.id); } }, '移出') : null));
+        })))),
+      h('div', { class: 'row' }, h('button', { type: 'button', class: 'btn small', disabled: !net.bindings.length, onclick: netResendRules }, '重新发送规则包给所有玩家')));
+  }
+
+  function netComposeCard() {
+    var to = '*';
+    var opts = [['*', '所有已加入的玩家']].concat(state.players.filter(function (p) { return netBound(p.id); }).map(function (p) { return [p.id, p.name]; }));
+    var sel = U.select(opts, to, function (v) { to = v; });
+    return h('section', { class: 'card' },
+      h('div', { class: 'card-head' }, h('h2', null, '私信')),
+      U.field('发给', sel),
+      U.field('内容', draftArea('netdm', 3, '例如：今晚守夜的人请准备好携带物品。')),
+      h('div', { class: 'row' }, h('button', {
+        type: 'button', class: 'btn primary', disabled: !net.bindings.length, onclick: function () {
+          var text = (ui.drafts.netdm || '').trim();
+          if (!text) { U.toast('请先输入内容', 'warn'); return; }
+          netSendText(to, text);
+          ui.drafts.netdm = '';
+          render();
+        }
+      }, '发送')),
+      h('p', { class: 'muted small' }, '对方离线时先存在房间里，上线后收到。'));
+  }
+
+  function netFeedCard() {
+    return h('section', { class: 'card' },
+      h('div', { class: 'card-head' }, h('h2', null, '联机记录'), h('span', { class: 'muted small' }, '本次打开页面以来；完整记录见「日志」')),
+      net.feed.length ? h('ul', { class: 'list-plain net-feed' }, net.feed.map(function (f) {
+        return h('li', null, h('span', { class: 'muted small' }, U.fmtTime(f.at)), ' ', f.text);
+      })) : h('p', { class: 'empty' }, '还没有联机消息。'));
+  }
+
+  function netHelpCard() {
+    return h('details', { class: 'card' },
+      h('summary', null, h('b', null, '联机怎么用')),
+      h('ul', null,
+        h('li', null, '主持人开房间 → 玩家扫二维码或点加入链接 → 选自己的名字 → 主持人通过（可设为自动通过）。'),
+        h('li', null, '玩家页会实时看到公开信息；轮到谁行动、领补给、投票，都在玩家自己的页面上点。'),
+        h('li', null, '领到的补给、别人赠予的物品会自动进玩家库存；交公自动进公共池；撤回发放时玩家库存自动扣回。'),
+        h('li', null, '断线不要紧：消息先存在房间里，重新连上后自动补收；房间 14 天没有动静会自动删除。'),
+        h('li', null, '局域网：在入口页下载 shelter-lan.mjs，主持人电脑运行 node shelter-lan.mjs，大家连同一个 Wi‑Fi 打开窗口里显示的地址。')));
+  }
+
+  /** 公开展示页：扫码加入。 */
+  function netStageJoin() {
+    if (!net.cfg || !state.stage.showJoin) return null;
+    var link = ShelterNet.joinLink(net.cfg.code, net.cfg.base);
+    var qr = ShelterNet.qrSvg(link, 220);
+    return h('div', { class: 'stage-panel net-stage-join' },
+      h('h3', null, '扫码加入'),
+      qr ? h('div', { class: 'net-qr' }, qr) : null,
+      h('div', { class: 'net-code' }, net.cfg.code),
+      h('p', { class: 'muted small' }, '用手机扫码，或在玩家页输入房间码。'));
+  }
+
+
   // ================================================================ 启动
 
   function boot() {
@@ -3454,12 +4385,19 @@
     U.i18n.setLang(U.i18n.getLang());
     document.title = U.T(PAGE_TITLE);
     state = loadState();
+    netBoot();
     // 从玩家的守夜卡片链接打开时，别的主持人标签页直接同步，不弹「另一个标签页修改了存档」
     if (/#watch=/.test(location.hash)) U.writeKey(KEY_SYNC, String(Date.now()));
     save();
     render();
     openWatchLink();
     setInterval(timerTick, 250);
+    // 联机消息来时正在输入：离开输入框（且没在点按钮）后再补画主体
+    document.addEventListener('focusout', function () { if (ui.mainStale) setTimeout(flushStale, 300); });
+    document.addEventListener('pointerdown', function () { ui.pointerDown = true; }, true);
+    document.addEventListener('pointerup', function () { ui.pointerDown = false; if (ui.mainStale) setTimeout(flushStale, 80); }, true);
+    document.addEventListener('visibilitychange', function () { if (!document.hidden && net.link) net.link.wake(); });
+    window.addEventListener('online', function () { if (net.link) net.link.wake(); });
     document.addEventListener('keydown', function (e) {
       if (e.key === 'Escape' && ui.present && !document.querySelector('.overlay')) exitPresent();
     });

@@ -1,0 +1,13 @@
+{
+  "name": "shelter-rt",
+  "private": true,
+  "type": "module",
+  "description": "避难所 Playtest 联机中转（Cloudflare Worker + Durable Objects）",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "4.148.0"
+  }
+}
