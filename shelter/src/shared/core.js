@@ -2017,8 +2017,16 @@
       scavengeHistory: [],
       manualScores: { loveHate: null, survival: null, task: null, adjust: null, note: '' },
       handoffs: [],
+      // 联机：收件箱（私信、收到的物品、事件结果）与联机往来的记账
+      inbox: [],
+      netData: newPlayerNetData(),
       log: []
     };
+  }
+
+  /** grants：收到的补给（撤回时按它扣回）；offers：轮到自己时的补给候选；ballots：自己投的票；outgoing：还没被房间收下的赠予与交公。 */
+  function newPlayerNetData() {
+    return { grants: {}, offers: {}, ballots: {}, outgoing: {} };
   }
 
   function validEntry(e) {
@@ -2087,6 +2095,8 @@
       out.manualScores = Object.assign({ loveHate: null, survival: null, task: null, adjust: null, note: '' }, obj.manualScores || {});
       out.taskProgress = Object.assign({ count: 0, events: [], done: false, note: '' }, obj.taskProgress || {});
       out.action = Object.assign({ day: null, used: false, note: '' }, obj.action || {});
+      out.inbox = Array.isArray(obj.inbox) ? obj.inbox : [];
+      out.netData = Object.assign(newPlayerNetData(), obj.netData || {});
       if (!Array.isArray(obj.otherNames)) {
         out.otherNames = obj.roster && Array.isArray(obj.roster.players)
           ? obj.roster.players.filter(function (p) { return p && p.name && p.alive !== false && p.name !== obj.name; }).map(function (p) { return p.name; })
@@ -2096,6 +2106,188 @@
       if (out.scavengeTemplate && out.scavengeTemplate.isExample && out.scavengeTemplate.rev !== 2) out.scavengeTemplate = defaultScavengeTemplate();
     }
     return out;
+  }
+
+  // ---------------------------------------------------------------- 联机：公开信息、物品往来、投票
+  //
+  // 联机时主持人页把「本来就会显示在公开展示页上的内容」整理成一份公开信息发给所有玩家；
+  // 玩家之间、玩家与主持人之间的物品往来都用下面这几个函数打包和入库，两边算法一致。
+
+  /** 给玩家页的公开信息。不含公共池明细、补给候选、事件库、未公开结果、私信与计分等秘密。 */
+  function publicSnapshot(s, now) {
+    now = now || Date.now();
+    var t = s.today || {};
+    var ph = PHASES[s.phase] || null;
+    var tm = s.timer || {};
+    var remaining = tm.running && tm.endsAt ? Math.max(0, tm.endsAt - now) : Math.max(0, tm.remainingMs || 0);
+    var flow = t.eventFlow;
+    var vote = null;
+    if (flow && flow.netVote && flow.event && flow.published) {
+      var nv = flow.netVote;
+      var tally = tallyVotes(flow.event.options, nv.ballots);
+      vote = {
+        flowId: flow.id,
+        open: !!nv.open,
+        options: flow.event.options.map(function (o, i) { return { id: o.id, label: o.label, letter: String.fromCharCode(65 + i) }; }),
+        voters: Object.keys(nv.ballots || {}),
+        counts: nv.open ? null : tally.counts,
+        result: flow.vote || null
+      };
+    }
+    var ev = s.stage && s.stage.event;
+    var fw = t.finalWatch;
+    return {
+      v: 1,
+      at: now,
+      started: !!s.started,
+      day: s.day,
+      phase: s.phase,
+      phaseName: ph ? ph.name : '',
+      phaseNo: ph ? ph.no : null,
+      phaseDesc: ph ? ph.desc : '',
+      players: (s.players || []).map(function (p) { return { id: p.id, name: p.name, alive: p.alive !== false }; }),
+      seats: (s.seatOrder || []).slice(),
+      actions: t.actionOrder ? { order: t.actionOrder.slice(), acted: (t.actedIds || []).slice(), current: nextActor(t.actionOrder, t.actedIds || []) } : null,
+      timer: { running: !!(tm.running && tm.endsAt), remainingMs: remaining, durationMs: tm.durationMs || 0 },
+      eventCheck: t.eventCheck ? { triggered: !!t.eventCheck.triggered } : null,
+      event: ev ? { name: ev.name, location: ev.location || '', body: ev.body || '', options: (ev.options || []).slice(), flowId: ev.flowId || null } : null,
+      vote: vote,
+      rescue: { progress: s.rescueProgress || 0, target: s.rules ? s.rules.rescueTarget : null },
+      feed: (s.publicFeed || []).slice(-30).map(function (f) { return { id: f.id, day: f.day, kind: f.kind, text: f.text }; }),
+      watch: fw && fw.published ? { ids: (fw.memberIds || []).slice(), names: (fw.memberNames || []).slice() } : null,
+      batches: (s.batches || []).filter(function (b) { return b.status === 'open'; }).map(function (b) {
+        var picked = b.picks.map(function (p) { return p.playerId; });
+        return { id: b.id, label: b.label, day: b.day, order: b.pickOrder.slice(), picked: picked, next: b.pickOrder.filter(function (id) { return picked.indexOf(id) < 0; })[0] || null };
+      }),
+      poolCount: s.stage && s.stage.showPoolCount ? countPieces(s.pool || []) : null
+    };
+  }
+
+  /** 投票计数。ballots：玩家 id → 选项 id。top 是得票最多的选项（可能并列）。 */
+  function tallyVotes(options, ballots) {
+    var counts = {};
+    (options || []).forEach(function (o) { counts[o.id] = 0; });
+    var total = 0;
+    Object.keys(ballots || {}).forEach(function (pid) {
+      var op = ballots[pid];
+      if (Object.prototype.hasOwnProperty.call(counts, op)) { counts[op] += 1; total += 1; }
+    });
+    var max = 0;
+    Object.keys(counts).forEach(function (k) { if (counts[k] > max) max = counts[k]; });
+    var top = max > 0 ? Object.keys(counts).filter(function (k) { return counts[k] === max; }) : [];
+    return { counts: counts, total: total, top: top };
+  }
+
+  var ITEM_BASE_KEYS = ['id', 'defId', 'qty', 'remark', 'src'];
+
+  /**
+   * 把库存条目打包成可以发出去的物品（不含条目 id）：实例字段（剩余次数、地图笔记、水量、破损）原样带上；
+   * 自定义物品连同定义一起带上，对方页面没有这个物品时会自动加上。
+   */
+  function packItem(entry, qty, customItems) {
+    var out = { defId: entry.defId, qty: isInt(qty) ? qty : entry.qty };
+    var fields = {};
+    Object.keys(entry).forEach(function (k) { if (ITEM_BASE_KEYS.indexOf(k) < 0) fields[k] = clone(entry[k]); });
+    if (Object.keys(fields).length) out.fields = fields;
+    if (entry.remark) out.remark = entry.remark;
+    if (!ITEM_INDEX[entry.defId]) {
+      var def = getDef(entry.defId, customItems);
+      if (!def.unknown) out.def = clone(def);
+    }
+    return out;
+  }
+
+  /** 一行说明：「面包×2、能量棒（剩2次）」这类。 */
+  function describeItems(items, customItems) {
+    return (items || []).map(function (it) {
+      var def = getDef(it.defId, (customItems || []).concat(it.def ? [it.def] : []));
+      var extra = it.fields && isInt(it.fields.uses) ? '（剩' + it.fields.uses + '次）' : '';
+      return def.name + (it.qty > 1 || isStackable(def) ? '×' + it.qty : '') + extra;
+    }).join('、');
+  }
+
+  /**
+   * 收到物品：加入 state.inventory（state 需有 inventory、customItems、rules）。
+   * src：来源标记（补给发放的编号），撤回时按它找回同一批物品。返回 { added: [条目], newDefs: [自定义物品定义] }。
+   */
+  function receiveItems(state, items, src) {
+    var added = [];
+    var newDefs = [];
+    state.customItems = state.customItems || [];
+    (items || []).forEach(function (it) {
+      if (!it || typeof it.defId !== 'string' || !isInt(it.qty) || it.qty <= 0) return;
+      if (it.def && !ITEM_INDEX[it.defId] && !state.customItems.some(function (d) { return d.id === it.defId; })) {
+        var def = clone(it.def);
+        def.id = it.defId;
+        state.customItems.push(def);
+        newDefs.push(def);
+      }
+      var opts = { customItems: state.customItems, rules: state.rules, fields: it.fields, remark: it.remark };
+      var entries = addItem(state.inventory, it.defId, it.qty, opts);
+      if (src) entries.forEach(function (e) { if (e.qty === it.qty || !isStackable(getDef(e.defId, state.customItems))) e.src = src; });
+      added = added.concat(entries);
+    });
+    return { added: added, newDefs: newDefs };
+  }
+
+  /**
+   * 拿走物品（补给被撤回时）：优先拿同一来源标记的条目，不够再拿同类物品。
+   * 返回 { taken: [{defId, qty}], missing: [{defId, qty}] }，不会扣成负数。
+   */
+  function takeItems(state, items, src) {
+    var taken = [];
+    var missing = [];
+    (items || []).forEach(function (it) {
+      var need = it.qty;
+      var pool = state.inventory.filter(function (e) { return e.defId === it.defId; });
+      pool.sort(function (a, b) { return (b.src === src ? 1 : 0) - (a.src === src ? 1 : 0); });
+      pool.forEach(function (e) {
+        if (need <= 0) return;
+        var n = Math.min(need, e.qty);
+        removeQty(state.inventory, e.id, n);
+        need -= n;
+      });
+      if (it.qty - need > 0) taken.push({ defId: it.defId, qty: it.qty - need });
+      if (need > 0) missing.push({ defId: it.defId, qty: need });
+    });
+    return { taken: taken, missing: missing };
+  }
+
+  /**
+   * 把事件的个人效果应用到玩家自己的存档（玩家在收件箱里点「应用」时）。
+   * 返回改动说明（写日志用）；物品为负数时扣除，不够的部分只提示。
+   */
+  function applyPersonalEffects(state, personal, day) {
+    var notes = [];
+    if (!personal) return notes;
+    if (isNum(personal.hp) && personal.hp !== 0) {
+      var hp0 = state.hp;
+      state.hp = (isNum(state.hp) ? state.hp : 0) + personal.hp;
+      notes.push('生命 ' + hp0 + ' → ' + state.hp);
+    }
+    if (isNum(personal.hunger) && personal.hunger !== 0) {
+      var h0 = state.hunger;
+      state.hunger = (isNum(state.hunger) ? state.hunger : 0) + personal.hunger;
+      notes.push('饥饿值 ' + (h0 == null ? '未记录' : h0) + ' → ' + state.hunger);
+    }
+    if (personal.thirst && personal.thirst !== state.thirst) {
+      notes.push('口渴 ' + state.thirst + ' → ' + personal.thirst);
+      state.thirst = personal.thirst;
+    }
+    if (personal.status) {
+      var def = STATUSES.filter(function (x) { return x.name === personal.status; })[0];
+      state.statuses.push({ id: uid('st'), statusId: def ? def.id : null, name: personal.status, startDay: day == null ? null : day, nextDay: null, note: '事件效果' });
+      notes.push('获得状态：' + personal.status);
+    }
+    var gains = (personal.items || []).filter(function (it) { return it.qty > 0; });
+    var losses = (personal.items || []).filter(function (it) { return it.qty < 0; }).map(function (it) { return { defId: it.defId, qty: -it.qty }; });
+    if (gains.length) { receiveItems(state, gains); notes.push('获得 ' + describeItems(gains, state.customItems)); }
+    if (losses.length) {
+      var r = takeItems(state, losses);
+      if (r.taken.length) notes.push('失去 ' + describeItems(r.taken, state.customItems));
+      if (r.missing.length) notes.push('库存不够扣：' + describeItems(r.missing, state.customItems));
+    }
+    return notes;
   }
 
   /** 主持人发给玩家的「规则包」：只含规则、自定义物品与搜刮模板。 */
@@ -2263,6 +2455,13 @@
     validateSave: validateSave,
     normalizeSave: normalizeSave,
     makeRulesPack: makeRulesPack,
+    publicSnapshot: publicSnapshot,
+    tallyVotes: tallyVotes,
+    packItem: packItem,
+    describeItems: describeItems,
+    receiveItems: receiveItems,
+    takeItems: takeItems,
+    applyPersonalEffects: applyPersonalEffects,
     validateRulesPack: validateRulesPack
   };
 });

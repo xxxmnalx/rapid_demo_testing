@@ -94,17 +94,31 @@ async function recordAction(page, pid, typeLabel) {
 
 // ---------------------------------------------------------------- 文件与网络
 
-test('两个文件断网后可单独打开；核心功能没有网络依赖', async () => {
+test('两个文件断网后可单独打开；核心功能没有网络依赖（联机代码只在开房间／加入房间后才用）', async () => {
+  const NET_API = /\bfetch\(|XMLHttpRequest|WebSocket|sendBeacon|EventSource/g;
+  const netSource = readFileSync(join(ROOT, 'src/net/net.js'), 'utf8');
   for (const file of ['host.html', 'player.html']) {
     const html = readFileSync(join(ROOT, file), 'utf8');
     assert.ok(!/\b(src|href)\s*=\s*["']https?:/i.test(html), file + ' 不引用外部资源');
     assert.ok(!/@import|url\(\s*["']?https?:/i.test(html), file + ' 不加载远程样式或字体');
-    assert.ok(!/\bfetch\(|XMLHttpRequest|WebSocket|sendBeacon|EventSource/.test(html), file + ' 不发网络请求');
+    assert.equal((html.match(NET_API) || []).length, (netSource.match(NET_API) || []).length, file + ' 只有联机模块（src/net/net.js）会联网');
   }
-  const { context, external } = await newContext();
+  // 没开房间、没加入房间时：不建连接、不发请求
+  const { context, external } = await newContext({
+    init: () => {
+      window.__netCalls = 0;
+      const WS = window.WebSocket;
+      window.WebSocket = function () { window.__netCalls += 1; return new WS(...arguments); };
+      const f = window.fetch;
+      window.fetch = function () { window.__netCalls += 1; return f.apply(this, arguments); };
+    }
+  });
   for (const url of [HOST, PLAYER]) {
     const { page, errors } = await open(context, url);
     await page.waitForSelector('#tabs .tab');
+    await tab(page, 'net');
+    await page.waitForTimeout(300);
+    assert.equal(await page.evaluate(() => window.__netCalls), 0, url + ' 没开房间时不联网');
     assert.deepEqual(errors, [], url + ' 无脚本错误');
   }
   assert.deepEqual(external, [], '没有任何外部请求');
@@ -889,7 +903,7 @@ test('玩家页在 375px 宽度下没有横向溢出', async () => {
   const { context } = await newContext({ viewport: { width: 375, height: 812 } });
   const { page } = await open(context, PLAYER);
   await playerDemo(page);
-  for (const id of ['dashboard', 'status', 'inventory', 'scavenge', 'action', 'score', 'save']) {
+  for (const id of ['dashboard', 'status', 'inventory', 'scavenge', 'action', 'net', 'score', 'save']) {
     await tab(page, id);
     const width = await page.evaluate(() => document.documentElement.scrollWidth);
     assert.ok(width <= 375, `${id} 宽度 ${width}`);
@@ -918,7 +932,7 @@ test('入口页：经主站反代的 /game/shelter（无结尾斜杠）与直连
     for (const [entry, expected] of [['/game/shelter', '/game/shelter/'], ['/shelter/', '/shelter/'], ['/shelter', '/shelter/']]) {
       const { page, errors } = await open(context, origin + entry);
       const hrefs = await page.locator('a[data-page]').evaluateAll((as) => as.map((a) => new URL(a.href).pathname));
-      assert.deepEqual(hrefs, [expected + 'host.html', expected + 'player.html'], entry);
+      assert.deepEqual(hrefs, [expected + 'host.html', expected + 'player.html', expected + 'shelter-lan.mjs'], entry);
       await page.locator('a[data-page="player.html"]').click();
       await page.waitForSelector('#tabs .tab');
       assert.equal(new URL(page.url()).pathname, expected + 'player.html');
@@ -927,7 +941,7 @@ test('入口页：经主站反代的 /game/shelter（无结尾斜杠）与直连
     }
     const { page } = await open(context, 'file://' + join(ROOT, 'index.html'));
     const local = await page.locator('a[data-page]').evaluateAll((as) => as.map((a) => a.getAttribute('href')));
-    assert.deepEqual(local, ['host.html', 'player.html'], '双击打开时保持相对链接');
+    assert.deepEqual(local, ['host.html', 'player.html', 'shelter-lan.mjs'], '双击打开时保持相对链接');
     assert.deepEqual(external, []);
   } finally {
     await context.close();
@@ -995,7 +1009,7 @@ test('响应式布局：手机底栏＋更多、平板顶栏、电脑侧栏与�
   nav = await box('#tabs');
   const main = await box('#main');
   assert.ok(nav.y < main.y, '平板：标签在内容上方');
-  assert.equal(await page.locator('#tabs .tab:visible').count(), 7, '携带并入库存、身份并入行动后共 7 页');
+  assert.equal(await page.locator('#tabs .tab:visible').count(), 8, '携带并入库存、身份并入行动，加上联机，共 8 页');
 
   await page.setViewportSize({ width: 1440, height: 900 });
   nav = await box('#tabs');
@@ -1094,7 +1108,7 @@ test('英文界面：主持人与玩家每一页都没有残留中文（演示�
   await tab(host, 'flow');
   await btn(host, 'Start Day 1 →').click();
   await modalBtn(host, 'Start');
-  for (const id of ['flow', 'stage', 'supply', 'watch', 'events', 'records', 'log', 'settings']) {
+  for (const id of ['flow', 'stage', 'supply', 'watch', 'events', 'records', 'log', 'net', 'settings']) {
     await tab(host, id);
     const gate = host.locator('[data-gate] button');
     if (await gate.count()) {
@@ -1108,7 +1122,7 @@ test('英文界面：主持人与玩家每一页都没有残留中文（演示�
   await tab(player, 'save');
   await btn(player, 'Open demo save').click();
   await player.waitForFunction((k) => !!localStorage.getItem(k), PLAYER_DEMO);
-  for (const id of ['dashboard', 'status', 'inventory', 'scavenge', 'action', 'score', 'save']) {
+  for (const id of ['dashboard', 'status', 'inventory', 'scavenge', 'action', 'net', 'score', 'save']) {
     await tab(player, id);
     assert.deepEqual(await leftoverChinese(player), [], 'player ' + id);
   }

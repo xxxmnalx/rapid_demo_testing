@@ -1,0 +1,15 @@
+{
+  // 避难所 Playtest 联机中转。部署：Cloudflare 后台连上 GitHub 仓库（根目录 shelter/relay），
+  // 或在本目录运行 npx wrangler deploy。Worker 名字必须和下面的 name 一致。
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "shelter-rt",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-09-01",
+  "workers_dev": true,
+  "routes": [{ "pattern": "shelter-rt.xxxmnalx.com", "custom_domain": true }],
+  "durable_objects": {
+    "bindings": [{ "name": "ROOMS", "class_name": "ShelterRoom" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["ShelterRoom"] }],
+  "observability": { "enabled": true }
+}

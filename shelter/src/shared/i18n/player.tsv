@@ -739,3 +739,193 @@
 删除这个浏览器里的玩家数据：正式存档、演示存档、自动备份和页面设置，然后重新载入最新页面。页面出错或想从头开始时用。删除后无法恢复。	Deletes the player data in this browser—main save, demo save, automatic backups and page settings—then reloads the latest page. Use it when the page misbehaves or you want a fresh start. It cannot be undone.
 会删除这个浏览器里的所有玩家数据（正式存档、演示存档、自动备份、页面设置），然后重新载入页面。删除后无法恢复。	This deletes all player data in this browser (main save, demo save, automatic backups, page settings) and reloads the page. It cannot be undone.
 主持人页的数据和语言选择不受影响。需要保留的话先导出：	Host page data and your language choice stay untouched. To keep a copy, export first:
+库存是空的。领到的补给、别人赠予的物品会自动放进来。	Your inventory is empty. Supplies you receive and items others give you are added automatically.
+对方已加入联机房间：从你的库存扣除，直接放进对方的库存。	They are in the online room: removed from your inventory and put straight into theirs.
+你在联机房间里：从你的库存扣除，直接放进主持人的公共池。	You are in the online room: removed from your inventory and put straight into the host's pool.
+（没加入房间）	 (not in the room)
+名单外（手动填写）	Not on the roster (type a name)
+转出	Hand over
+库存里已经没有这么多了	You don't have that many any more
+交给 	Gave to 
+（通过联机房间）	 (via the online room)
+赠予（联机）	Gift (online)
+交公（联机）	To pool (online)
+已交给房间：	Handed to the room: 
+ 的库存会自动加上	's inventory gets it automatically
+已交给房间：主持人页自动加入公共池	Handed to the room: the host page adds it to the pool automatically
+（已加入房间：对方页面自动生效）	 (in the room: takes effect on their page automatically)
+）：通过联机房间，对方页面自动生效	): via the online room — takes effect on their page automatically
+ 的页面会自动生效	's page applies it automatically
+使用医疗箱治疗 	Used a medkit on 
+：通过联机房间，对方页面自动生效	: via the online room — takes effect on their page automatically
+提交后只能提交一次：自留物品加入库存，交公的物品通过联机房间直接进主持人的公共池。	You can submit only once: kept items go into your inventory; hand-ins go straight into the host's pool via the online room.
+已通过联机房间交给主持人，自动加入公共池。	Handed to the host via the online room and added to the pool automatically.
+请主持人在公共池手动加入。	Host: please add these to the pool manually.
+搜刮交公	Scavenge hand-in
+已提交：交公物品已交给房间，主持人页自动加入公共池	Submitted: hand-ins were handed to the room; the host page adds them to the pool automatically
+已提交	Submitted
+重新交给主持人	Send to the host again
+直接交给主持人	Send straight to the host
+已交给房间 	Handed to the room 
+主持人页会自动加入今天的候选。	The host page adds it to today's candidates automatically.
+每天一次行动。点一个按钮点亮它，就记为今天的行动；再点一次取消，点别的就改选。你在联机房间里：选择会交给主持人页，轮到你时自动记录（记录后要改请找主持人）。	One action per day. Tap a button to light it up and it becomes today's action; tap again to cancel, or tap another to switch. You're in the online room: your choice goes to the host page and is recorded automatically on your turn (after that, ask the host to change it).
+（不在名单里）	(not on the roster)
+加入新房间？	Join the new room?
+这台设备已经在房间 	This device is already in room 
+ 里。加入 	. Joining 
+ 会离开原来的房间。	 leaves the old room.
+加入新房间	Join new room
+房间码是 5 位字母和数字	A room code is 5 letters and digits
+主持人通过了：你是 	The host approved: you are 
+联机转到了另一个标签页或设备：本页不再收发联机消息	Online play moved to another tab or device: this page no longer sends or receives room messages
+这台设备的加入凭证已失效：请重新选择你的名字	This device's join pass is no longer valid: please pick your name again
+页面版本和联机服务器不一致：请刷新页面	This page's version doesn't match the online server: please reload the page
+你被主持人移出了房间。	The host removed you from the room.
+主持人没有通过你的加入请求。	The host declined your request to join.
+房间不存在或已经过期：请核对房间码。	The room doesn't exist or has expired: check the room code.
+取回没送出的物品	Take back unsent items
+离开房间时还有没送出的物品，已放回库存：	Some items had not been sent when you left the room; they are back in your inventory: 
+离开房间：没送出的物品放回库存	Left the room: unsent items put back in inventory
+离开房间？	Leave the room?
+这台设备不再接收公开信息和消息。你的存档不受影响；之后可以用房间码重新加入（需要主持人再次通过）。	This device will stop receiving public info and messages. Your save is not affected; you can rejoin later with the room code (the host approves again).
+离开房间	Leave room
+已离开房间	Left the room
+同步公开信息	Sync public info
+同步主持人的天数：	Synced the host's day: 
+同步座次：	Synced seat: 
+名字按主持人名单改为：	Name changed to match the host's roster: 
+主持人记录：你还活着	Host's record: you are alive
+主持人记录：你已死亡	Host's record: you are dead
+轮到你行动了	It's your turn to act
+主持人发起了投票：在「总览」或「联机」页投票	The host started a vote: vote on the “Home” or “Online” tab
+联机消息	Online message
+收到看不懂的消息（	Received a message this page doesn't understand (
+收到私信	DM received
+导入规则包（联机）	Import rules pack (online)
+收到主持人的规则包：规则、自定义物品与玩家名单已自动更新。	Received the host's rules pack: rules, custom items and the player roster were updated automatically.
+导入主持人规则包（联机）	Imported the host's rules pack (online)
+补给候选	Supply options
+轮到你领取补给了：	Your turn to pick supplies: 
+补给候选收回	Supply options withdrawn
+收到补给	Supplies received
+收到补给：	Received supplies: 
+，已放进库存。	, added to your inventory.
+收到补给（联机）：	Received supplies (online): 
+，已放进库存	, added to your inventory
+补给撤回	Supplies withdrawn
+主持人撤回了一件补给，但这台设备没有收到过它，库存没有改动。	The host withdrew a supply item this device never received; your inventory is unchanged.
+主持人撤回了补给	The host withdrew supplies
+。库存里已经没有，没能扣回：	. Already gone from your inventory, could not remove: 
+（请和主持人确认）	 (please check with the host)
+，已从库存扣回。	, removed from your inventory.
+补给被撤回（联机）：	Supplies withdrawn (online): 
+；没能扣回 	; could not remove 
+主持人撤回了补给：有物品已经不在库存里，请看收件箱	The host withdrew supplies: some items are no longer in your inventory — see the inbox
+主持人撤回了补给：已从库存扣回	The host withdrew supplies: removed from your inventory
+领取没成功	Pick failed
+领取没成功：	Pick failed: 
+请重新选择	please choose again
+收到事件结果	Event result received
+收到事件结果：到收件箱查看	Event result received: see the inbox
+收到赠予	Gift received
+ 交给你：	 gave you: 
+ 的赠予（联机）：	's gift (online): 
+绷带：恢复1生命	Bandage: restore 1 HP
+医疗箱：清除伤病类负面状态，并恢复2生命	Medkit: clear injury-type negative statuses and restore 2 HP
+被治疗	Treated
+ 对你使用了	 treated you — 
+生命 → 	HP → 
+清除一处流血伤口	cleared one bleeding wound
+你没有流血伤口：状态没有改动	you have no bleeding wound: statuses unchanged
+清除 	cleared 
+是否属伤病类待裁定、没有自动清除：	not cleared automatically (injury type pending a ruling): 
+送达房间	Delivered to room
+没送出（	Not sent (
+ 已放回库存。	 put back in your inventory.
+联机没送出，物品放回库存：	Online send failed, items put back in inventory: 
+没送出：物品已放回库存	Not sent: items put back in your inventory
+主持人已经记录了你今天的行动：要改请直接找主持人	The host already recorded your action for today: ask the host directly to change it
+守夜卡已发出	Watch card sent
+守夜卡（	Watch card (
+）通过房间交给主持人	) handed to the host via the room
+已交给房间：主持人页会自动加入候选	Handed to the room: the host page adds it to the candidates automatically
+投票	Vote
+领取「	Pick “
+交给主持人页确认后会自动放进你的库存。	Once the host page confirms, it goes into your inventory automatically.
+领取	Pick
+领取补给	Pick supplies
+领取补给：选择 	Pick supplies: chose 
+（等主持人页确认）	 (waiting for the host page to confirm)
+给主持人留言	Note to the host
+发给主持人：	To the host: 
+给主持人留言：	Note to the host: 
+已交给房间：主持人页会显示	Handed to the room: it shows on the host page
+应用事件结果	Apply event result
+应用事件结果：	Applied event result: 
+没有个人效果	no personal effects
+加入中	Joining
+ 条未读	 unread
+例如 K7M2Q	e.g. K7M2Q
+加入联机房间	Join an online room
+主持人开了房间时，扫主持人给的二维码或点加入链接就能进来；也可以在这里输入房间码。	When the host has opened a room, scan the host's QR code or open the join link — or enter the room code here.
+加入后：公开信息实时显示；领到的补给、别人赠予的物品自动进库存；行动、投票、守夜卡直接交给主持人。不加入也能照常使用本页。	Once you join: public info shows live; supplies you receive and items others give you go into your inventory automatically; actions, votes and watch cards go straight to the host. This page also works as usual without joining.
+加入房间 	Join room 
+取消加入	Cancel joining
+另一个标签页正在用这个房间。	Another tab is using this room.
+已经提出加入请求，等主持人通过…	Request sent — waiting for the host to approve…
+主持人通过后自动进入；可以先去别的页看看。	You join automatically once approved; feel free to look at other tabs meanwhile.
+连不上联机服务器，正在重试…	Can't reach the online server, retrying…
+正在连接…	Connecting…
+你的名字	Your name
+你是谁？点自己的名字，主持人通过后就加入了。	Who are you? Tap your name; you're in once the host approves.
+主持人还没公布玩家名单：填上你的名字提出请求，由主持人对上号。	The host hasn't shared the player roster yet: enter your name and send a request; the host will match it.
+请填写名字	Please enter a name
+提出请求	Send request
+主持人现在不在线：请求会在主持人回来后显示。	The host is offline right now: your request shows up when they're back.
+选了已有设备的名字：主持人通过后，那台设备会断开（换手机时用）。	Picking a name that already has a device: once approved, that device is disconnected (for switching phones).
+你是 	You are 
+（主持人暂时不在线：消息会先存在房间里）	 (the host is offline for now: messages wait in the room)
+待发 	Pending: 
+ 条：连上后自动补发。	 — sent once connected.
+等主持人公开信息…	Waiting for the host to share public info…
+游戏还没开始	The game hasn't started yet
+正在行动：	Acting now: 
+本轮行动已结束	This round of actions is over
+你的行动已记录	Your action is recorded
+（轮到你时自动记录）	 (recorded automatically on your turn)
+去选择行动	Choose your action
+轮到你领取：	Your turn to pick: 
+已选，等主持人页确认…	Chosen — waiting for the host page to confirm…
+点一件领取；领到的自动放进库存。	Tap an item to pick it; it goes into your inventory automatically.
+已领完	all picked
+（已领 	 (picked 
+（阈值未知）	 (threshold unknown)
+公共池剩余 	Pool remaining: 
+公开信息	Public info
+公共事件：	Public event: 
+投票中：已投 	Voting: voted 
+（你已投，可以改票）	 (you voted — you can still change it)
+投票结束	Vote ended
+：结果「	: result “
+（在 Discord 投票）	 (vote on Discord)
+联机 · 现场	Online · Live
+收件箱 	Inbox: 
+ 条新消息	 new
+详情	Details
+治疗	Treatment
+事件结果	Event result
+系统	System
+留言	Note
+收件箱	Inbox
+应用到我的存档	Apply to my save
+不是给你的效果就不用点	Skip it if the effect isn't for you
+还没有消息。主持人的私信、领到的补给、别人的赠予都会出现在这里。	No messages yet. The host's DMs, supplies you receive and gifts from others show up here.
+例如：我想用子弹换水，可以吗？	e.g. Can I trade ammo for water?
+只有主持人看得到。主持人不在线时先存在房间里。	Only the host can see it. If the host is offline, it waits in the room.
+扫主持人的二维码或点加入链接 → 选自己的名字 → 主持人通过。	Scan the host's QR code or open the join link → pick your name → the host approves.
+天数、座次、名单自动和主持人同步；轮到你行动、领补给、投票时页面会提醒。	Day, seat and roster sync with the host automatically; the page lets you know when it's your turn to act, pick supplies or vote.
+领到的补给、别人赠予的物品自动放进库存；交公、赠予已加入房间的玩家时自动从你的库存扣除并送到对方。	Supplies you receive and items others give you go into your inventory automatically; hand-ins and gifts to players in the room are removed from your inventory and delivered automatically.
+对方没加入房间时，照旧生成交接文本。	If the other player isn't in the room, a handoff text is generated as before.
+断线不要紧：消息先存在房间里，重新连上后自动补收、补发。	Dropped connections are fine: messages wait in the room and are delivered once you reconnect.
+下一位领取：	Next to pick: 
+已撤回	Withdrawn

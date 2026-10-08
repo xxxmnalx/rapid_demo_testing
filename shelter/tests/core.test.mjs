@@ -490,6 +490,98 @@ test('本局用过的事件：以前各天的流程、今天的流程、未撤�
   assert.equal(C.todayHasData(t), true, '抽过事件也算今天有记录');
 });
 
+test('联机公开信息：只含公开展示页上的内容，不含公共池明细、候选、事件库、私信与未公开的结果', () => {
+  const s = hostWithPlayers(['A', 'B', 'C']);
+  s.players[2].alive = false;
+  C.addItem(s.pool, 'jewel', 3, {});
+  C.addItem(s.pool, 'bread', 2, {});
+  s.events = [C.normalizeEvent({ name: '秘密事件库条目', isDraft: false, options: [{ label: '参与' }] })];
+  s.today.watchCandidates = [{ id: 'wc1', plannerId: 'A', options: [{ v: 2, names: ['候选里的秘密名字'] }], chosenIndex: 0 }];
+  s.dmNotes = { A: '只给 A 的秘密私信' };
+  s.today.finalWatch = { id: 'fw', memberIds: ['B'], memberNames: ['B'], published: false };
+  s.timer = { durationMs: 60000, remainingMs: 60000, endsAt: 10000 + 30000, running: true };
+  const snap = C.publicSnapshot(s, 10000);
+  const text = JSON.stringify(snap);
+  ['jewel', '珠宝', '秘密事件库条目', '候选里的秘密名字', '只给 A 的秘密私信'].forEach((secret) => assert.ok(!text.includes(secret), '不含：' + secret));
+  assert.equal(snap.watch, null, '守夜名单公开之前不在公开信息里');
+  assert.equal(snap.poolCount, null, '公共池件数默认不公开');
+  assert.deepEqual(snap.players.map((p) => [p.name, p.alive]), [['A', true], ['B', true], ['C', false]]);
+  assert.equal(snap.timer.remainingMs, 30000, '计时按发出时刻算剩余时间');
+  s.today.finalWatch.published = true;
+  s.stage.showPoolCount = true;
+  const snap2 = C.publicSnapshot(s, 10000);
+  assert.deepEqual(snap2.watch.names, ['B']);
+  assert.equal(snap2.poolCount, 5, '主持人勾选公开件数后才显示，而且只有件数');
+
+  // 投票：进行中只公开谁投了，结束后才公开票数
+  const ev = C.normalizeEvent({ name: '售货机', isDraft: false, options: [{ label: '撬开' }, { label: '离开' }] });
+  s.stage.event = { name: ev.name, options: ev.options.map((o) => o.label), flowId: 'f1' };
+  s.today.eventFlow = { id: 'f1', event: ev, published: true, vote: null, netVote: { open: true, ballots: { A: ev.options[0].id, B: ev.options[1].id } } };
+  const v1 = C.publicSnapshot(s).vote;
+  assert.deepEqual(v1.voters.sort(), ['A', 'B']);
+  assert.equal(v1.counts, null, '投票进行中不公开票数');
+  assert.deepEqual(v1.options.map((o) => o.letter), ['A', 'B']);
+  s.today.eventFlow.netVote.open = false;
+  assert.deepEqual(Object.values(C.publicSnapshot(s).vote.counts), [1, 1]);
+  s.today.eventFlow.published = false;
+  assert.equal(C.publicSnapshot(s).vote, null, '事件没公布时没有投票');
+});
+
+test('联机计票：得票最多的选项，并列时都列出；不在选项里的票不算', () => {
+  const ops = [{ id: 'x' }, { id: 'y' }, { id: 'z' }];
+  assert.deepEqual(C.tallyVotes(ops, { a: 'x', b: 'y', c: 'x', d: 'nope' }), { counts: { x: 2, y: 1, z: 0 }, total: 3, top: ['x'] });
+  assert.deepEqual(C.tallyVotes(ops, { a: 'x', b: 'y' }).top, ['x', 'y']);
+  assert.deepEqual(C.tallyVotes(ops, {}).top, []);
+});
+
+test('联机物品往来：打包与入库保留实例字段；自定义物品连定义一起送到；撤回优先拿同一批', () => {
+  const giver = { inventory: [], customItems: [C.newCustomItem({ name: '旧收音机', category: 'special', capacityTicks: 2 })], rules: C.defaultRules() };
+  const radioId = giver.customItems[0].id;
+  C.addItem(giver.inventory, 'energy_bar', 1, { rules: giver.rules, fields: { uses: 2 } });
+  C.addItem(giver.inventory, 'map', 1, { rules: giver.rules, fields: { notes: [{ id: 'n1', text: '地下通道有水' }] } });
+  C.addItem(giver.inventory, radioId, 1, { customItems: giver.customItems });
+  C.addItem(giver.inventory, 'bread', 3, {});
+  const packed = giver.inventory.map((e) => C.packItem(e, e.defId === 'bread' ? 2 : null, giver.customItems));
+  assert.equal(packed[0].fields.uses, 2);
+  assert.equal(packed[1].fields.notes[0].text, '地下通道有水');
+  assert.equal(packed[2].def.name, '旧收音机', '自定义物品带上定义');
+  assert.equal(packed[3].qty, 2);
+  assert.equal(packed.every((p) => !('id' in p)), true, '不带条目 id');
+
+  const taker = { inventory: [], customItems: [], rules: C.defaultRules() };
+  C.addItem(taker.inventory, 'bread', 1, {});
+  const r = C.receiveItems(taker, JSON.parse(JSON.stringify(packed)), 'grant-1');
+  assert.equal(r.newDefs.length, 1, '对方没有的自定义物品自动加上');
+  assert.equal(C.getDef(radioId, taker.customItems).name, '旧收音机');
+  const bar = taker.inventory.find((e) => e.defId === 'energy_bar');
+  assert.equal(bar.uses, 2, '能量棒剩余次数不变');
+  assert.equal(taker.inventory.find((e) => e.defId === 'map').notes[0].text, '地下通道有水');
+  assert.equal(taker.inventory.find((e) => e.defId === 'bread').qty, 3, '面包叠加到原有的一堆');
+  assert.equal(C.describeItems(packed, giver.customItems), '能量棒（剩2次）、地图、旧收音机×1、面包×2');
+
+  // 撤回：先拿同一批（src）里的，不够只提示
+  const back = C.takeItems(taker, [{ defId: 'energy_bar', qty: 1 }, { defId: 'medkit', qty: 1 }], 'grant-1');
+  assert.deepEqual(back.taken, [{ defId: 'energy_bar', qty: 1 }]);
+  assert.deepEqual(back.missing, [{ defId: 'medkit', qty: 1 }]);
+  assert.equal(taker.inventory.some((e) => e.defId === 'energy_bar'), false);
+});
+
+test('联机事件效果：玩家点「应用」时改生命、饥饿、口渴、状态和物品；扣不够只提示', () => {
+  const p = C.newPlayerState();
+  p.hp = 5;
+  p.hunger = 3;
+  C.addItem(p.inventory, 'water', 1, {});
+  const notes = C.applyPersonalEffects(p, { hp: -2, hunger: 1, thirst: '口渴', status: '感染', items: [{ defId: 'bread', qty: 2 }, { defId: 'water', qty: -2 }] }, 4);
+  assert.equal(p.hp, 3);
+  assert.equal(p.hunger, 4);
+  assert.equal(p.thirst, '口渴');
+  assert.equal(p.statuses[0].statusId, 'infection');
+  assert.equal(p.statuses[0].startDay, 4);
+  assert.equal(p.inventory.find((e) => e.defId === 'bread').qty, 2);
+  assert.equal(p.inventory.some((e) => e.defId === 'water'), false);
+  assert.deepEqual(notes, ['生命 5 → 3', '饥饿值 3 → 4', '口渴 不渴 → 口渴', '获得状态：感染', '获得 面包×2', '失去 普通水×1', '库存不够扣：普通水×1']);
+});
+
 test('公共事件：80% 只控制触发；分支概率单独计算，合计100%才允许自动抽签', () => {
   let triggered = 0;
   const rng = C.seededRng(99);

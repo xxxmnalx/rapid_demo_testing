@@ -1,10 +1,13 @@
 # 静态站点按仓库根目录原样部署。避难所 Playtest 只需要上线构建产物
-# （shelter/index.html、host.html、player.html），源码、测试、构建脚本与说明不部署。
+# （shelter/index.html、host.html、player.html，以及供下载的局域网服务器 shelter-lan.mjs），
+# 源码、测试、构建脚本、说明与云端联机服务器（Cloudflare 部署）不部署。
 shelter/src
 shelter/tests
 shelter/node_modules
 shelter/build.mjs
 shelter/tools
+shelter/relay
+shelter/lan
 shelter/package.json
 shelter/package-lock.json
 shelter/.gitignore

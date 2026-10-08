@@ -90,3 +90,43 @@ tab-short|存档	Save
 可抽	Drawable
 本局已用	Used this game
 已重抽	rerolls
+# 联机：一页生成、另一页显示的文字（公开结果、补给名、回复、事件结果通知、治疗说明）
+今晚守夜：	Tonight's watch: 
+：投票「	: vote “
+结算（部分分数／待裁定）：	Settlement (partial / pending rulings): 
+最终结算：	Final settlement: 
+（*含待定项）	 (*includes TBD items)
+每日补给	Daily supply
+开局领取第1次	Opening pickup #1
+开局领取第2次	Opening pickup #2
+其他发放	Other handout
+发放	Handout
+开局	Opening
+今天的守夜名单已经确认，你的卡片没有加进候选。	Today's watch roster is already confirmed; your card was not added to the candidates.
+这次投票已经结束，你的票没有计入。	This vote has ended; your vote was not counted.
+已死亡的玩家不能投票。	Dead players cannot vote.
+主持人页没有记录你的行动：	The host page did not record your action: 
+你的页面天数和主持人不一致，请等页面同步后再选。	your page's day differs from the host's — wait for it to sync, then choose again.
+游戏还没开始。	the game hasn't started yet.
+换位要双方同意：轮到你时告诉主持人想和谁换，由主持人记录结果。	A swap needs both sides to agree: on your turn, tell the host who you want to swap with; the host records the result.
+你今天的行动已经记录，改成「	Your action for today is already recorded, so changing it to “
+」没有生效：要改请直接找主持人。	” had no effect — ask the host directly to change it.
+使用技能	Use skill
+换位请求	Swap request
+计划守夜名单	Plan watch roster
+其他行动	Other action
+放弃行动	Pass
+主持人撤回了「	The host withdrew what you received in “
+」里领到的这件	”
+这批补给已经结束	This supply batch has ended
+还没轮到你：现在轮到 	Not your turn yet — now picking: 
+这批补给已经领完	This supply batch has all been picked
+这件已经被选走或不在候选里：请重新选	That item was already taken or isn't in the batch: please choose again
+个人效果（对象：	Personal effects (target: 
+见主持人说明	see the host's notes
+属于你的个人效果：点「应用」自动修改你的生命、状态与物品。	If these personal effects are yours, tap “Apply” to update your HP, statuses and items automatically.
+这次没有个人效果，看过即可。	No personal effects this time — just for your information.
+绷带：恢复1生命	Bandage: restore 1 HP
+绷带：止血（清除一处流血伤口）	Bandage: stopped bleeding (cleared one bleeding wound)
+医疗箱：清除伤病类负面状态，并恢复2生命	Medkit: clear injury-type negative statuses and restore 2 HP
+搜刮交公	Scavenge hand-in

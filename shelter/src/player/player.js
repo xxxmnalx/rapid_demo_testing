@@ -2,7 +2,8 @@
  * 避难所 Playtest · 玩家端
  *
  * 个人记录的主要来源：物品（含实例状态）、生命与状态、携带装备、搜刮、身份与分数。
- * 与主持人端互不同步：主持人发物资后玩家手动添加；交公、赠予、治疗他人都生成交接文本。
+ * 不加入联机房间时与主持人端互不同步：主持人发物资后玩家手动添加；交公、赠予、治疗他人都生成交接文本。
+ * 加入了主持人的联机房间（见「联机」一节）后，补给、赠予、交公、治疗直接送到对方页面，公开信息实时显示。
  * 玩家可以编辑自己的全部数据；超容量只警告，不阻断主持人裁定。
  */
 (function () {
@@ -26,6 +27,7 @@
     { id: 'inventory', name: '库存', full: '库存与携带', primary: true },
     { id: 'scavenge', name: '搜刮', primary: true },
     { id: 'action', name: '行动', full: '行动与身份', primary: true },
+    { id: 'net', name: '联机', full: '联机房间' },
     { id: 'score', name: '分数' },
     { id: 'save', name: '存档' }
   ];
@@ -115,20 +117,39 @@
       render();
       return false;
     }
-    if (opts.undo !== false) undo.push(label, before);
+    if (opts.undo !== false) {
+      undo.push(label, before);
+      undo.peek().netSeq = net.seq;
+    }
     save();
     render();
     return true;
   }
 
+  /**
+   * 撤销：恢复上一步之前的存档。之后从联机来的修改（收到的物品、私信、同步的天数……）不在撤销栈里，
+   * 恢复后按顺序重新套用一遍，不会被一起撤掉。
+   */
   function undoLast() {
     var item = undo.pop();
     if (!item) return;
-    state = item.snapshot;
+    var prev = state;
+    var next = item.snapshot;
+    var since = item.netSeq == null ? net.seq : item.netSeq;
+    net.journal.forEach(function (j) {
+      if (j.seq <= since) return;
+      var trial = C.clone(next);
+      try { if (j.fn(trial) !== false) next = trial; } catch (e) { /* 撤销后不再成立：跳过 */ }
+    });
+    state = next;
     log(state, '撤销：' + item.label);
     save();
     render();
     U.toast('已撤销：' + item.label, 'ok');
+    // 撤销改到了今天的行动：主持人页也跟着改
+    var a0 = prev.action;
+    var a1 = state.action;
+    if ((a0.day === today() && a0.used ? a0.type : null) !== (a1.day === today() && a1.used ? a1.type : null)) netReportAction(a1.day === today() && a1.used ? a1.type || 'other' : null);
   }
 
   function log(s, text) {
@@ -211,11 +232,26 @@
     render();
   }
 
+  /** 联机消息随时会来：正在输入时只重画顶栏，离开输入框后再重画主体，避免打字被打断。 */
   function render() {
     renderBanner();
     renderTop();
     renderTabs();
+    if (ui.quietRender && isTyping()) { ui.mainStale = true; return; }
+    ui.mainStale = false;
     renderMain();
+  }
+
+  function flushStale() {
+    if (!ui.mainStale || ui.pointerDown || isTyping()) return;
+    renderMain();
+    ui.mainStale = false;
+  }
+
+  function isTyping() {
+    var el = document.activeElement;
+    if (!el || !document.getElementById('main').contains(el)) return false;
+    return el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || (el.tagName === 'INPUT' && !/^(checkbox|radio|button|submit|range|color|file)$/i.test(el.type));
   }
 
   function renderBanner() {
@@ -257,6 +293,7 @@
           h('span', null, '第 ', h('b', null, String(today())), ' 天'),
           h('button', { type: 'button', class: 'btn small icon-btn', 'aria-label': '后一天', onclick: function () { setDay(today() + 1); } }, '›')),
         h('div', { class: 'p-top-tools' },
+          netChip(),
           U.langToggle(onLangChange),
           h('button', { type: 'button', class: 'btn small', onclick: undoLast, disabled: !undo.peek(), title: undo.peek() ? '撤销：' + undo.peek().label : '' }, U.icon('undo'), '撤销'))),
       h('div', { class: 'p-vitals', role: 'group', 'aria-label': '简要状态' },
@@ -317,7 +354,7 @@
 
   function renderMain() {
     var main = U.clear(document.getElementById('main'));
-    var views = { dashboard: renderDashboard, status: renderStatus, inventory: renderInventory, scavenge: renderScavenge, action: renderAction, score: renderScore, save: renderSave };
+    var views = { dashboard: renderDashboard, status: renderStatus, inventory: renderInventory, scavenge: renderScavenge, action: renderAction, net: renderNet, score: renderScore, save: renderSave };
     main.className = 'main p-main tab-' + ui.tab;
     main.appendChild((views[ui.tab] || renderDashboard)());
   }
@@ -349,6 +386,7 @@
 
   function renderDashboard() {
     return h('div', { class: 'dash' },
+      netLiveCard(),
       vitalsSection(),
       quickActions(),
       h('div', { class: 'dash-cols' },
@@ -473,7 +511,7 @@
       })),
       tip,
       h('p', { class: 'bars-caption' }, '比例尺 0–' + C.fmtUnits(scale) + ' 单位' + (cap ? '（个人总库存上限 ' + C.fmtUnits(cap) + '）' : '') + '；已用 ' + C.fmtUnits(used) + ' 单位')) :
-      h('p', { class: 'empty' }, '库存是空的。主持人发放物资后在「库存」页手动添加。');
+      h('p', { class: 'empty' }, netJoined() ? '库存是空的。领到的补给、别人赠予的物品会自动放进来。' : '库存是空的。主持人发放物资后在「库存」页手动添加。');
     return dashCard('占位构成', body, { cls: 'c-comp', action: linkBtn('库存', 'inventory') });
   }
 
@@ -1287,34 +1325,77 @@
     var modeHost = h('div');
     var who = h('input', { type: 'text', placeholder: '对方名字' });
     var qty = h('input', { type: 'number', class: 'num', min: 1, max: e.qty, value: 1 });
-    function drawMode() { U.clear(modeHost).appendChild(U.segmented([['gift', '赠予／交易给玩家'], ['pool', '交给公共池']], mode, function (v) { mode = v; drawMode(); })); }
+    // 在联机房间里：从主持人的名单里选人，对方已加入房间时直接送到他的库存
+    var targets = netTargets();
+    var target = targets && targets.length ? targets[0].id : '';
+    var whoHost = h('div', { class: 'stack' });
+    var hint = h('p', { class: 'muted small' });
+    function direct() {
+      return mode === 'gift' ? netCanReach(target) : netLive();
+    }
+    function drawHint() {
+      hint.textContent = U.T(direct()
+        ? (mode === 'gift' ? '对方已加入联机房间：从你的库存扣除，直接放进对方的库存。' : '你在联机房间里：从你的库存扣除，直接放进主持人的公共池。')
+        : '会从你的库存扣除并生成交接文本：对方（或主持人）需要手动添加，不会自动同步。');
+    }
+    function drawWho() {
+      U.clear(whoHost);
+      if (targets && targets.length) {
+        whoHost.appendChild(U.select(targets.map(function (p) { return [p.id, p.name + (p.joined ? '' : '（没加入房间）')]; }).concat([['', '名单外（手动填写）']]), target, function (v) { target = v; drawWho(); }));
+        if (!target) whoHost.appendChild(who);
+      } else {
+        whoHost.appendChild(who);
+      }
+      drawHint();
+    }
+    function drawMode() {
+      U.clear(modeHost).appendChild(U.segmented([['gift', '赠予／交易给玩家'], ['pool', '交给公共池']], mode, function (v) { mode = v; drawMode(); }));
+      drawHint();
+    }
+    drawWho();
     drawMode();
     U.modal({
       title: '转出：' + describe(e),
-      body: h('div', { class: 'stack' }, modeHost, U.field('对方（赠予时填写）', who), C.isStackable(def) ? U.field('数量（现有 ' + e.qty + '）', qty) : null,
-        h('p', { class: 'muted small' }, '会从你的库存扣除并生成交接文本：对方（或主持人）需要手动添加，不会自动同步。')),
-      actions: [{ label: '取消', value: false }, { label: '转出并生成文本', kind: 'primary', value: true }]
+      body: h('div', { class: 'stack' }, modeHost, U.field('对方（赠予时填写）', whoHost), C.isStackable(def) ? U.field('数量（现有 ' + e.qty + '）', qty) : null, hint),
+      actions: [{ label: '取消', value: false }, { label: netJoined() ? '转出' : '转出并生成文本', kind: 'primary', value: true }]
     }).then(function (ok) {
       if (!ok) return;
       var n = C.isStackable(def) ? parseInt(qty.value, 10) : 1;
       if (!(n > 0) || n > e.qty) { U.toast('数量需在 1～' + e.qty + ' 之间', 'warn'); return; }
-      if (mode === 'gift' && !who.value.trim()) { U.toast('请填写对方名字', 'warn'); return; }
+      var toName = mode === 'gift' ? (target && targets ? snapName(target) : who.value.trim()) : '';
+      if (mode === 'gift' && !toName) { U.toast('请填写对方名字', 'warn'); return; }
+      var viaNet = direct();
+      var id = viaNet ? ShelterNet.uid('m') : null;
+      var packed = null;
       var text = '';
-      var done = commit(mode === 'gift' ? '赠予' : '交公', function (s) {
+      var fn = function (s) {
         var x = C.findEntry(s.inventory, entryId);
+        if (!x || x.qty < n) throw new Error('库存里已经没有这么多了');
         var desc = C.isStackable(def) ? def.name + '×' + n + (x.remark ? '〔' + x.remark + '〕' : '') : describe(x);
         var notes = def.instance === 'notes' && x.notes.length ? '（地图笔记：' + x.notes.map(function (k) { return k.text; }).join('；') + '）' : '';
+        packed = C.packItem(x, n, s.customItems);
         C.removeQty(s.inventory, entryId, n);
         syncLoadout(s);
-        if (mode === 'gift') {
-          text = handoff(s, 'gift', '【赠予／交易·第' + today() + '天】' + myName() + ' 把「' + desc + '」交给了 ' + who.value.trim() + notes + '。请 ' + who.value.trim() + ' 在玩家页「库存」手动添加。');
-          log(s, '转出给 ' + who.value.trim() + '：' + desc);
+        if (viaNet) {
+          recordOutgoing(s, id, mode === 'gift' ? 'gift' : 'deposit', mode === 'gift' ? target : 'host', toName, [packed]);
+          log(s, (mode === 'gift' ? '交给 ' + toName : '交给公共池') + '：' + desc + '（通过联机房间）');
+        } else if (mode === 'gift') {
+          text = handoff(s, 'gift', '【赠予／交易·第' + today() + '天】' + myName() + ' 把「' + desc + '」交给了 ' + toName + notes + '。请 ' + toName + ' 在玩家页「库存」手动添加。');
+          log(s, '转出给 ' + toName + '：' + desc);
         } else {
           text = handoff(s, 'pool', '【交公·第' + today() + '天】' + myName() + ' 交出「' + desc + '」' + notes + '。请主持人在公共池手动加入。');
           log(s, '交给公共池：' + desc);
         }
-      });
-      if (done) showHandoff(text);
+      };
+      // 直接送出的不能撤销（对方已经收到了）
+      var done = viaNet ? netCommit(mode === 'gift' ? '赠予（联机）' : '交公（联机）', fn) : commit(mode === 'gift' ? '赠予' : '交公', fn);
+      if (!done) return;
+      if (viaNet) {
+        netPostItems(id, mode === 'gift' ? 'gift' : 'deposit', target, [packed]);
+        U.toast(mode === 'gift' ? '已交给房间：' + toName + ' 的库存会自动加上' : '已交给房间：主持人页自动加入公共池', 'ok');
+      } else {
+        showHandoff(text);
+      }
     });
   }
 
@@ -1402,12 +1483,25 @@
 
   function targetPicker(holder) {
     var host = h('div');
-    var who = h('input', { type: 'text', placeholder: '对方名字', value: holder.who || '' });
+    // 在联机房间里：从主持人的名单里选人；对方已加入房间时，治疗在对方页面自动生效
+    var targets = netTargets();
+    if (targets && targets.length && holder.pid === undefined) { holder.pid = targets[0].id; holder.who = targets[0].name; }
+    var who = h('input', { type: 'text', placeholder: '对方名字', value: holder.pid ? '' : holder.who || '' });
     who.addEventListener('input', function () { holder.who = who.value; });
     function draw() {
+      var other = null;
+      if (holder.target === 'other') {
+        other = targets && targets.length ? h('div', { class: 'stack' },
+          U.select(targets.map(function (p) { return [p.id, p.name + (p.joined ? '（已加入房间：对方页面自动生效）' : '（没加入房间）')]; }).concat([['', '名单外（手动填写）']]), holder.pid || '', function (v) {
+            holder.pid = v || null;
+            holder.who = v ? snapName(v) : who.value;
+            draw();
+          }),
+          holder.pid ? null : who) : who;
+      }
       U.clear(host).appendChild(h('div', { class: 'stack' },
         U.segmented([['self', '自己'], ['other', '他人']], holder.target, function (v) { holder.target = v; draw(); }),
-        holder.target === 'other' ? who : null));
+        other));
     }
     draw();
     return host;
@@ -1429,7 +1523,8 @@
       if (holder.target === 'other' && !holder.who.trim()) { U.toast('请填写对方名字', 'warn'); return; }
       if (holder.target === 'self' && holder.effect === 'stop' && !bleeds.length) { U.toast('没有可以止血的伤口', 'warn'); return; }
       var text = '';
-      commit('使用绷带', function (s) {
+      var direct = holder.target === 'other' && netCanReach(holder.pid);
+      var fn = function (s) {
         C.removeQty(s.inventory, e.id, 1);
         syncLoadout(s);
         if (holder.target === 'self') {
@@ -1439,11 +1534,19 @@
             s.statuses = s.statuses.filter(function (st) { return st.id !== b.id; });
             log(s, '绷带：止血（清除一处流血伤口）');
           }
+        } else if (direct) {
+          log(s, '对 ' + holder.who.trim() + ' 使用绷带（' + (holder.effect === 'heal' ? '恢复1生命' : '止血') + '）：通过联机房间，对方页面自动生效');
         } else {
           text = handoff(s, 'heal', '【治疗·第' + today() + '天】' + myName() + ' 对 ' + holder.who.trim() + ' 使用了绷带：' + (holder.effect === 'heal' ? '恢复1生命' : '止血（清除一处流血伤口）') + '。请 ' + holder.who.trim() + ' 在玩家页手动修改。');
           log(s, '对 ' + holder.who.trim() + ' 使用绷带（' + (holder.effect === 'heal' ? '恢复1生命' : '止血') + '）');
         }
-      });
+      };
+      // 直接送到对方页面的不能撤销（对方已经生效了）
+      var ok = direct ? netCommit('使用绷带', fn) : commit('使用绷带', fn);
+      if (ok && direct) {
+        netSendHeal(holder.pid, holder.effect === 'heal' ? 'bandage-heal' : 'bandage-stop');
+        U.toast('已交给房间：' + holder.who.trim() + ' 的页面会自动生效', 'ok');
+      }
       if (text) showHandoff(text, '治疗他人：请对方手动修改');
     });
   }
@@ -1472,7 +1575,8 @@
       if (!ok) return;
       if (holder.target === 'other' && !holder.who.trim()) { U.toast('请填写对方名字', 'warn'); return; }
       var text = '';
-      commit('使用医疗箱', function (s) {
+      var direct = holder.target === 'other' && netCanReach(holder.pid);
+      var fn = function (s) {
         C.removeQty(s.inventory, e.id, 1);
         syncLoadout(s);
         if (holder.target === 'self') {
@@ -1481,14 +1585,22 @@
           s.hp += 2;
           log(s, '医疗箱：恢复2生命 → ' + s.hp + (removed.length ? '；清除 ' + removed.join('、') : ''));
         } else {
-          text = handoff(s, 'heal', '【治疗·第' + today() + '天】' + myName() + ' 对 ' + holder.who.trim() + ' 使用了医疗箱：清除伤病类负面状态，并恢复2生命（不处理饥饿、口渴及脱水昏迷）。请 ' + holder.who.trim() + ' 在玩家页手动修改。');
-          log(s, '对 ' + holder.who.trim() + ' 使用医疗箱');
+          if (direct) log(s, '使用医疗箱治疗 ' + holder.who.trim() + '：通过联机房间，对方页面自动生效');
+          else {
+            text = handoff(s, 'heal', '【治疗·第' + today() + '天】' + myName() + ' 对 ' + holder.who.trim() + ' 使用了医疗箱：清除伤病类负面状态，并恢复2生命（不处理饥饿、口渴及脱水昏迷）。请 ' + holder.who.trim() + ' 在玩家页手动修改。');
+            log(s, '使用医疗箱治疗 ' + holder.who.trim());
+          }
           if (doctor && doctorBox.checked) {
             C.addItem(s.inventory, 'bandage', 1, { customItems: s.customItems, rules: s.rules });
             log(s, '医生（草案）：治疗他人后获得1份绷带');
           }
         }
-      });
+      };
+      var ok = direct ? netCommit('使用医疗箱', fn) : commit('使用医疗箱', fn);
+      if (ok && direct) {
+        netSendHeal(holder.pid, 'medkit');
+        U.toast('已交给房间：' + holder.who.trim() + ' 的页面会自动生效', 'ok');
+      }
       if (text) showHandoff(text, '治疗他人：请对方手动修改');
     });
   }
@@ -1767,35 +1879,50 @@
         transfers.length ? h('p', null, h('b', null, '旧物品转出（不算本次所得）：'), transfers.map(function (t) { return describe(t.entry) + (C.isStackable(defOf(t.entry)) ? '（' + t.qty + '件）' : ''); }).join('、')) : null,
         over ? h('div', { class: 'callout risk' }, (check.keepOver ? '自留超过 ' + C.fmtUnits(check.keepLimit) + ' 单位。' : '') + (check.inventoryOver ? '提交后总库存超过 ' + C.fmtUnits(check.inventoryLimit) + ' 单位。' : '') + '只警告，不阻断主持人裁定。') : null,
         over ? h('label', { class: 'check' }, override, '主持人已裁定，仍然提交') : null,
-        h('p', { class: 'muted small' }, '提交后只能提交一次：自留物品加入库存，交公清单生成交接文本给主持人手动加入公共池。')),
+        h('p', { class: 'muted small' }, netLive() ? '提交后只能提交一次：自留物品加入库存，交公的物品通过联机房间直接进主持人的公共池。' : '提交后只能提交一次：自留物品加入库存，交公清单生成交接文本给主持人手动加入公共池。')),
       actions: [{ label: '返回修改', value: false }, { label: '确认提交', kind: 'primary', value: true, validate: function () { return over && !override.checked ? '超出额度：请先勾选「主持人已裁定」' : ''; } }]
     }).then(function (ok) {
       if (!ok) return;
       var text = '';
-      var done = commit('提交搜刮', function (s) {
+      // 在联机房间里：交公的物品直接送进主持人的公共池（送出后不能撤销）
+      var viaNet = netLive();
+      var id = viaNet ? ShelterNet.uid('m') : null;
+      var deposit = [];
+      var fn = function (s) {
         if (!s.scavenge || s.scavenge.id !== sc.id || s.scavenge.status !== 'organize') throw new Error('本次搜刮已提交，不会重复领取');
         kept.forEach(function (k) { C.addItem(s.inventory, k.defId, k.qty, { customItems: s.customItems, rules: s.rules }); });
         var oldOut = [];
+        var oldPacked = [];
         transfers.forEach(function (t) {
           var e = C.findEntry(s.inventory, t.entry.id);
           if (!e) return;
+          var n = Math.min(t.qty, e.qty);
           oldOut.push(C.isStackable(defOf(e)) ? defOf(e).name + '×' + t.qty : describe(e));
-          C.removeQty(s.inventory, e.id, Math.min(t.qty, e.qty));
+          oldPacked.push(C.packItem(e, n, s.customItems));
+          C.removeQty(s.inventory, e.id, n);
         });
         syncLoadout(s);
+        deposit = handIn.map(function (x) { return { defId: x.defId, qty: x.qty }; }).concat(oldPacked);
         var lines = ['【搜刮交公·第' + today() + '天】' + myName() + '：'];
         lines.push('本次所得交公：' + (handIn.length ? C.formatItemList(handIn, s.customItems) : '无'));
         if (oldOut.length) lines.push('另交出旧物品（不算本次所得）：' + oldOut.join('、'));
-        lines.push('自留 ' + C.fmtUnits(check.keepTicks) + ' 单位' + (over ? '（超出额度，已由主持人裁定）' : '') + '。请主持人在公共池手动加入。');
+        lines.push('自留 ' + C.fmtUnits(check.keepTicks) + ' 单位' + (over ? '（超出额度，已由主持人裁定）' : '') + '。' + (viaNet ? '已通过联机房间交给主持人，自动加入公共池。' : '请主持人在公共池手动加入。'));
         text = handoff(s, 'scavenge', lines.join('\n'));
+        if (viaNet && deposit.length) recordOutgoing(s, id, 'deposit', 'host', '搜刮交公', deposit);
         s.scavenge.status = 'submitted';
-        s.scavenge.submitted = { at: Date.now(), kept: kept, handIn: handIn, oldOut: oldOut, text: text, override: over };
+        s.scavenge.submitted = { at: Date.now(), kept: kept, handIn: handIn, oldOut: oldOut, text: text, override: over, viaNet: viaNet };
         log(s, '提交搜刮：自留 ' + (kept.length ? C.formatItemList(kept, s.customItems) : '无') + '；交公 ' + (handIn.length ? C.formatItemList(handIn, s.customItems) : '无') + (oldOut.length ? '；旧物品转出 ' + oldOut.join('、') : ''));
-      });
+      };
+      var done = viaNet ? netCommit('提交搜刮', fn) : commit('提交搜刮', fn);
       if (done) {
         ui.keep = {};
         ui.transfer = {};
-        showHandoff(text, '交公清单：发给主持人');
+        if (viaNet) {
+          if (deposit.length) netPostItems(id, 'deposit', 'host', deposit, '搜刮交公');
+          U.toast(deposit.length ? '已提交：交公物品已交给房间，主持人页自动加入公共池' : '已提交', 'ok');
+        } else {
+          showHandoff(text, '交公清单：发给主持人');
+        }
       }
     });
   }
@@ -1852,7 +1979,7 @@
   function chooseAction(type) {
     var cur = state.action.day === today() && state.action.used ? state.action.type || null : null;
     var prof = state.rules.professionsEnabled ? C.getProfession(state.professionId) : null;
-    commit('今日行动', function (s) {
+    var ok = commit('今日行动', function (s) {
       var old = s.action.day === today() ? s.action : null;
       if (old && old.skillLogId) s.skillLog = s.skillLog.filter(function (k) { return k.id !== old.skillLogId; });
       if (cur === type) {
@@ -1868,6 +1995,8 @@
       }
       log(s, '今日行动：' + actionName(type) + (cur ? '（改选，原为' + actionName(cur) + '）' : ''));
     });
+    // 在联机房间里：交给主持人页（轮到你时自动记录）
+    if (ok) netReportAction(cur === type ? null : type);
   }
 
   // ---------------------------------------------------------------- 守夜名单（只负责抽取、选择与分享）
@@ -1937,6 +2066,12 @@
       parts.push(h('div', { class: 'wcards', role: 'group', 'aria-label': '两张守夜卡' }, plan.cards.map(function (c, i) {
         return U.watchCardFace(C.watchCardFace(c), { id: c.id, selected: plan.chosen === i, caption: '第 ' + (i + 1) + ' 张', onclick: function () { choosePlanCard(i); } });
       })));
+      if (plan.chosen != null && netJoined()) {
+        var sent = plan.sentAt && plan.sentChoice === plan.chosen;
+        parts.push(h('div', { class: 'row' },
+          h('button', { type: 'button', class: 'btn primary big', onclick: function () { netSendWatch(plan); } }, sent ? '重新交给主持人' : '直接交给主持人'),
+          sent ? sevBadge('ok', '已交给房间 ' + U.fmtTime(plan.sentAt).slice(6)) : h('span', { class: 'muted small' }, '主持人页会自动加入今天的候选。')));
+      }
       if (plan.chosen != null) {
         var link = watchShareLink(plan);
         parts.push(h('div', { class: 'share-row' },
@@ -1993,7 +2128,9 @@
       h('section', { class: 'card wide action-card' },
         h('div', { class: 'card-head' }, h('h2', null, '第 ' + today() + ' 天的行动'),
           usedToday ? sevBadge('ok', '已选：' + actionName(current)) : sevBadge('info', '还没选')),
-        h('p', { class: 'muted small' }, '每天一次行动。点一个按钮点亮它，就记为今天的行动；再点一次取消，点别的就改选。只记在你自己的页面上，不会自动通知主持人。'),
+        h('p', { class: 'muted small' }, netJoined()
+          ? '每天一次行动。点一个按钮点亮它，就记为今天的行动；再点一次取消，点别的就改选。你在联机房间里：选择会交给主持人页，轮到你时自动记录（记录后要改请找主持人）。'
+          : '每天一次行动。点一个按钮点亮它，就记为今天的行动；再点一次取消，点别的就改选。只记在你自己的页面上，不会自动通知主持人。'),
         h('div', { class: 'action-grid', role: 'group', 'aria-label': '今日行动' }, ACTIONS.map(function (a) {
           var on = current === a.id;
           var disabled = a.id === 'skill' && !prof;
@@ -2234,21 +2371,26 @@
     var v = C.validateRulesPack(data);
     if (!v.ok) { U.modal({ title: '导入失败：规则未改动', body: h('p', null, v.errors[0]) }); return; }
     commit('导入规则包', function (s) {
-      s.rules = C.normalizeRules(data.rules);
-      (data.customItems || []).forEach(function (d) {
-        if (!d || !d.id || !d.name) return;
-        var idx = s.customItems.findIndex(function (x) { return x.id === d.id; });
-        if (idx >= 0) s.customItems[idx] = d;
-        else s.customItems.push(d);
-      });
-      if (data.scavengeTemplate && Array.isArray(data.scavengeTemplate.items)) s.scavengeTemplate = data.scavengeTemplate;
-      if (data.roster && Array.isArray(data.roster.players)) {
-        s.roster = data.roster;
-        s.otherNames = data.roster.players.filter(function (p) { return p && p.name && p.alive !== false && p.name !== s.name; }).map(function (p) { return p.name; });
-      }
+      applyRulesPack(s, data);
       log(s, '导入主持人规则包');
     });
     U.toast('规则包已导入', 'ok');
+  }
+
+  /** 规则包：只更新规则、自定义物品、搜刮模板与玩家名单，不碰库存和状态。粘贴导入、联机收到都走这里。 */
+  function applyRulesPack(s, data) {
+    s.rules = C.normalizeRules(data.rules);
+    (data.customItems || []).forEach(function (d) {
+      if (!d || !d.id || !d.name) return;
+      var idx = s.customItems.findIndex(function (x) { return x.id === d.id; });
+      if (idx >= 0) s.customItems[idx] = d;
+      else s.customItems.push(d);
+    });
+    if (data.scavengeTemplate && Array.isArray(data.scavengeTemplate.items)) s.scavengeTemplate = data.scavengeTemplate;
+    if (data.roster && Array.isArray(data.roster.players)) {
+      s.roster = data.roster;
+      s.otherNames = data.roster.players.filter(function (p) { return p && p.name && p.alive !== false && p.name !== s.name; }).map(function (p) { return p.name; });
+    }
   }
 
   function saveCard() {
@@ -2350,6 +2492,7 @@
     ui.keep = {};
     ui.transfer = {};
     state = loadState();
+    netSwitchSlot();
     save();
     render();
   }
@@ -2382,6 +2525,891 @@
       })));
   }
 
+  // ================================================================ 联机
+  //
+  // 主持人开了联机房间时：扫码或点加入链接 → 选自己的名字 → 主持人通过。之后：
+  //   - 公开信息（天数、阶段、轮到谁、计时、事件与投票、营救进度、公开结果）实时显示，天数与座次自动同步；
+  //   - 轮到自己领补给时直接在页面上选，领到的自动进库存；主持人撤回时自动扣回；
+  //   - 赠予已加入房间的玩家：对方库存自动增加；交公自动进公共池；治疗他人在对方页面自动生效；
+  //   - 行动、守夜卡、投票直接送到主持人页；私信与事件结果进收件箱。
+  // 不加入房间时一切照旧（交接文本）。同一浏览器只让一个标签页联机。
+
+  var NET_KEY = 'shelter-playtest:player:net:';
+  var NET_LOCK = 'shelter-playtest:player:netlock';
+  var KEY_INBOX_READ = 'shelter-playtest:player:inbox-read:';
+  var net = { cfg: null, link: null, lock: null, status: 'idle', info: null, snap: null, snapAt: 0, lobby: null, requested: false, request: null, online: [], hostOnline: false, seq: 0, journal: [], server: '' };
+
+  function netCfgKey() {
+    return NET_KEY + slot;
+  }
+
+  /** 已被主持人通过（有加入凭证）。 */
+  function netJoined() {
+    return !!(net.cfg && net.cfg.token && net.cfg.pid);
+  }
+
+  /** 可以通过房间发消息（断线时先排队，连上后补发）。 */
+  function netLive() {
+    return netJoined() && !!net.link;
+  }
+
+  function myPid() {
+    return net.cfg ? net.cfg.pid : null;
+  }
+
+  function snapPlayers() {
+    return net.snap && Array.isArray(net.snap.players) ? net.snap.players : [];
+  }
+
+  function snapName(pid) {
+    var p = snapPlayers().filter(function (x) { return x.id === pid; })[0];
+    return p ? p.name : '（不在名单里）';
+  }
+
+  /** 对方已加入房间：赠予、治疗直接送到他的页面。 */
+  function netCanReach(pid) {
+    return !!pid && pid !== myPid() && netLive() && !!net.snap && (net.snap.joined || []).indexOf(pid) >= 0;
+  }
+
+  /** 赠予、治疗的对象名单（主持人名单里活着的其他人）；没加入房间时返回 null，照旧手填名字。 */
+  function netTargets() {
+    if (!netJoined() || !net.snap) return null;
+    var joined = net.snap.joined || [];
+    return snapPlayers().filter(function (p) { return p.id !== myPid() && p.alive !== false; }).map(function (p) {
+      return { id: p.id, name: p.name, joined: joined.indexOf(p.id) >= 0 };
+    });
+  }
+
+  /**
+   * 联机带来的修改（收到的物品、私信、同步的天数、已经发出去的）：不进撤销栈，记进联机日志；
+   * 撤销自己的操作时，这些修改会重新套用，不会被一起撤掉。fn 要只改 s、不发消息，校验不过就抛错。
+   */
+  function netCommit(label, fn) {
+    var ok = commit(label, fn, { undo: false });
+    if (ok) {
+      net.seq += 1;
+      net.journal.push({ seq: net.seq, label: label, fn: fn });
+      if (net.journal.length > 400) net.journal.shift();
+    }
+    return ok;
+  }
+
+  /** 收到网络事件时重画；正在输入时先只画顶栏，离开输入框后再画主体（不打断打字）。 */
+  function netQuietRender() {
+    ui.quietRender = true;
+    try { render(); } finally { ui.quietRender = false; }
+  }
+
+  function inboxAdd(s, entry) {
+    s.inbox = s.inbox || [];
+    s.inbox.unshift(Object.assign({ id: C.uid('in'), at: Date.now(), day: s.publicInfo.day }, entry));
+    if (s.inbox.length > 200) s.inbox.length = 200;
+  }
+
+  function inboxReadAt() {
+    return Number(U.readKey(KEY_INBOX_READ + slot)) || 0;
+  }
+
+  function inboxUnread() {
+    var t = inboxReadAt();
+    return (state.inbox || []).filter(function (x) { return x.at > t; }).length;
+  }
+
+  function markInboxRead() {
+    if (inboxUnread()) U.writeKey(KEY_INBOX_READ + slot, String(Date.now()));
+  }
+
+  // ---------------------------------------------------------------- 连接
+
+  function netBoot() {
+    net.lock = new ShelterNet.TabLock(NET_LOCK + ':' + slot);
+    net.cfg = ShelterNet.readJSON(netCfgKey(), null);
+    var join = ShelterNet.parseJoin(location.hash);
+    if (join) {
+      try { history.replaceState(null, '', location.pathname + location.search); } catch (e) { location.hash = ''; }
+      if (!net.cfg || net.cfg.code !== join.code) {
+        if (net.cfg && net.cfg.token) {
+          var old = net.cfg.code;
+          netResume();
+          U.confirmBox('加入新房间？', '这台设备已经在房间 ' + old + ' 里。加入 ' + join.code + ' 会离开原来的房间。', '加入新房间', 'primary').then(function (ok) {
+            if (!ok) return;
+            netLeaveLocal(null);
+            netJoin(join.code, join.base);
+          });
+          return;
+        }
+        netJoin(join.code, join.base);
+        return;
+      }
+      ui.tab = 'net';
+    }
+    netResume();
+  }
+
+  function netResume() {
+    if (!net.cfg || !net.cfg.code) return;
+    if (net.lock.mine()) netStart();
+    else net.status = 'elsewhere';
+  }
+
+  /** 切换正式／演示存档：房间跟着存档走。 */
+  function netSwitchSlot() {
+    if (net.link) net.link.stop();
+    net.link = null;
+    net.status = 'idle';
+    net.snap = null;
+    net.lobby = null;
+    net.requested = false;
+    net.request = null;
+    net.journal = [];
+    if (net.lock) net.lock.release();
+    netBoot();
+  }
+
+  function netJoin(code, base) {
+    code = String(code || '').trim().toUpperCase();
+    if (!/^[A-Z0-9]{4,8}$/.test(code)) { U.toast('房间码是 5 位字母和数字', 'warn'); return; }
+    net.cfg = { base: ShelterNet.serverBase(base || net.server), code: code, token: null, pid: null, name: '', at: Date.now() };
+    ShelterNet.writeJSON(netCfgKey(), net.cfg);
+    net.snap = null;
+    net.lobby = null;
+    net.requested = false;
+    net.request = null;
+    netStart();
+    setTab('net');
+  }
+
+  function netStart() {
+    if (net.link) net.link.stop();
+    var cfg = net.cfg;
+    net.lock.take();
+    net.link = new ShelterNet.Link({
+      base: cfg.base, code: cfg.code, store: 'shelter-playtest:player:netq:' + slot + ':' + cfg.code,
+      hello: function () { return net.cfg && net.cfg.token ? { role: 'player', token: net.cfg.token } : { role: 'guest' }; },
+      onMessage: netReceive,
+      on: netEvent
+    });
+    net.link.start();
+  }
+
+  function netWriteCfg() {
+    if (net.cfg) ShelterNet.writeJSON(netCfgKey(), net.cfg);
+  }
+
+  function netEvent(type, d) {
+    switch (type) {
+      case 'status':
+        net.status = d.status;
+        net.info = d.info;
+        if (d.status === 'stopped') netStopped(d.info);
+        else netQuietRender();
+        return;
+      case 'lobby':
+        net.lobby = d;
+        // 等待通过时断线重连：新连接是新的访客，自动把同一个请求再提一次
+        if (net.request && net.request.gid !== d.gid) netRequest(net.request.pid, net.request.name);
+        netQuietRender();
+        return;
+      case 'requested':
+        net.requested = true;
+        netQuietRender();
+        return;
+      case 'approved':
+        net.cfg.token = d.token;
+        net.cfg.pid = d.pid;
+        net.cfg.name = d.name || '';
+        netWriteCfg();
+        net.requested = false;
+        net.request = null;
+        net.lobby = null;
+        U.toast('主持人通过了：你是 ' + (d.name || ''), 'ok');
+        return;
+      case 'welcome':
+        if (d.you) {
+          net.cfg.pid = d.you.pid;
+          net.cfg.name = d.you.name;
+          netWriteCfg();
+        }
+        net.online = d.online || [];
+        net.hostOnline = !!d.hostOnline;
+        if (d.snap) netOnSnap(d.snap, true);
+        else netQuietRender();
+        return;
+      case 'snap':
+        netOnSnap(d.s, false);
+        return;
+      case 'presence':
+        net.online = d.online || [];
+        net.hostOnline = !!d.hostOnline;
+        netQuietRender();
+        return;
+      case 'sent':
+        netSent(d.id);
+        return;
+      case 'error':
+        netError(d);
+        return;
+    }
+  }
+
+  function netStopped(code) {
+    if (code === 'replaced') {
+      net.link = null;
+      net.status = 'elsewhere';
+      U.toast('联机转到了另一个标签页或设备：本页不再收发联机消息', 'warn');
+      render();
+      return;
+    }
+    if (code === 'bad-token') {
+      // 凭证失效（例如主持人移出后又重开）：以访客身份重新加入
+      net.cfg.token = null;
+      net.cfg.pid = null;
+      netWriteCfg();
+      U.toast('这台设备的加入凭证已失效：请重新选择你的名字', 'warn');
+      netStart();
+      render();
+      return;
+    }
+    if (code === 'version') {
+      U.toast('页面版本和联机服务器不一致：请刷新页面', 'warn');
+      render();
+      return;
+    }
+    var text = {
+      kicked: '你被主持人移出了房间。',
+      ended: '房间已经关闭。',
+      rejected: '主持人没有通过你的加入请求。',
+      'no-room': '房间不存在或已经过期：请核对房间码。'
+    }[code] || ('联机已停止（' + code + '）');
+    netLeaveLocal(text);
+  }
+
+  /** 离开房间（本机）：还没送到房间的赠予、交公把物品放回库存，清掉加入凭证。 */
+  function netLeaveLocal(reason) {
+    var unsent = net.link ? net.link.outbox.filter(function (f) { return f.m && (f.m.kind === 'gift' || f.m.kind === 'deposit'); }) : [];
+    if (unsent.length) {
+      netCommit('取回没送出的物品', function (s) {
+        unsent.forEach(function (f) {
+          C.receiveItems(s, f.m.items);
+          delete s.netData.outgoing[f.m.id];
+        });
+        inboxAdd(s, { kind: 'system', from: 'system', text: '离开房间时还有没送出的物品，已放回库存：' + unsent.map(function (f) { return C.describeItems(f.m.items, s.customItems); }).join('；') });
+        log(s, '离开房间：没送出的物品放回库存');
+      });
+    }
+    if (net.link) {
+      net.link.forget();
+      net.link.stop();
+    }
+    net.link = null;
+    net.cfg = null;
+    net.snap = null;
+    net.lobby = null;
+    net.requested = false;
+    net.request = null;
+    net.status = 'idle';
+    ShelterNet.removeKey(netCfgKey());
+    if (net.lock) net.lock.release();
+    if (reason) U.toast(reason, 'warn');
+    render();
+  }
+
+  function netLeave() {
+    U.confirmBox('离开房间？', '这台设备不再接收公开信息和消息。你的存档不受影响；之后可以用房间码重新加入（需要主持人再次通过）。', '离开房间', 'danger').then(function (ok) {
+      if (ok) netLeaveLocal('已离开房间');
+    });
+  }
+
+  function netRequest(pid, name) {
+    if (!net.link || !net.lobby) return;
+    net.request = { pid: pid || null, name: name || '', gid: net.lobby.gid };
+    net.link.raw({ t: 'request', pid: pid || null, name: name || '' });
+  }
+
+  // ---------------------------------------------------------------- 公开信息
+
+  /** 收到主持人公开的信息：天数、座次、生死、名单自动同步到本页存档。 */
+  function netOnSnap(snap, first) {
+    var prev = net.snap;
+    net.snap = snap;
+    net.snapAt = Date.now();
+    var me = myPid();
+    var mine = snapPlayers().filter(function (p) { return p.id === me; })[0];
+    var seat = me ? snap.seats.indexOf(me) : -1;
+    var others = snapPlayers().filter(function (p) { return p.id !== me && p.alive !== false; }).map(function (p) { return p.name; });
+    var changes = [];
+    if (snap.started && C.isInt(snap.day) && snap.day !== state.publicInfo.day) changes.push('day');
+    if (seat >= 0 && state.publicInfo.seat !== String(seat + 1)) changes.push('seat');
+    if (mine && mine.name && mine.name !== state.name) changes.push('name');
+    if (mine && (mine.alive !== false) !== (state.alive !== false)) changes.push('alive');
+    if (JSON.stringify(others) !== JSON.stringify(state.otherNames || [])) changes.push('roster');
+    if (changes.length) {
+      ui.quietRender = true;
+      try {
+        netCommit('同步公开信息', function (s) {
+          if (changes.indexOf('day') >= 0) { s.publicInfo.day = snap.day; log(s, '同步主持人的天数：' + '第' + snap.day + '天'); }
+          if (changes.indexOf('seat') >= 0) { s.publicInfo.seat = String(seat + 1); log(s, '同步座次：' + '第 ' + (seat + 1) + ' 座'); }
+          if (changes.indexOf('name') >= 0) { log(s, '名字按主持人名单改为：' + mine.name); s.name = mine.name; }
+          if (changes.indexOf('alive') >= 0) { s.alive = mine.alive !== false; log(s, s.alive ? '主持人记录：你还活着' : '主持人记录：你已死亡'); }
+          if (changes.indexOf('roster') >= 0) {
+            s.otherNames = others;
+            s.roster = { day: snap.day, players: snapPlayers().map(function (p) { return { name: p.name, alive: p.alive !== false }; }) };
+          }
+        });
+      } finally {
+        ui.quietRender = false;
+      }
+    } else {
+      netQuietRender();
+    }
+    if (first || !prev) return;
+    // 轮到自己、投票开始：提醒一下
+    var a0 = prev.actions;
+    var a1 = snap.actions;
+    if (me && a1 && a1.current === me && (!a0 || a0.current !== me) && snap.phase === 'actions') U.toast('轮到你行动了', 'info');
+    if (snap.vote && snap.vote.open && !(prev.vote && prev.vote.open && prev.vote.flowId === snap.vote.flowId)) U.toast('主持人发起了投票：在「总览」或「联机」页投票', 'info');
+  }
+
+  function netTimerLeft() {
+    var tm = net.snap && net.snap.timer;
+    if (!tm) return null;
+    return tm.running ? Math.max(0, tm.remainingMs - (Date.now() - net.snapAt)) : tm.remainingMs;
+  }
+
+  function netTick() {
+    var left = netTimerLeft();
+    if (left == null) return;
+    var text = U.fmtClock(left);
+    Array.prototype.forEach.call(document.querySelectorAll('[data-net-timer]'), function (el) { el.textContent = text; });
+  }
+
+  // ---------------------------------------------------------------- 收到的消息
+
+  function netReceive(e) {
+    var m = e.m || {};
+    var fromName = e.from === 'host' ? '主持人' : (e.fromName || snapName(e.from));
+    ui.quietRender = true;
+    try {
+      switch (m.kind) {
+        case 'text': return netGotText(e, m, fromName);
+        case 'rules': return netGotRules(m);
+        case 'offer': return netGotOffer(m);
+        case 'offer-cancel': return netGotOfferCancel(m);
+        case 'grant': return netGotGrant(m);
+        case 'revoke': return netGotRevoke(m);
+        case 'pick-fail': return netGotPickFail(m);
+        case 'effect': return netGotEffect(m);
+        case 'gift': return netGotGift(e, m, fromName);
+        case 'heal': return netGotHeal(e, m, fromName);
+        default:
+          netCommit('联机消息', function (s) { inboxAdd(s, { kind: 'system', from: e.from, fromName: fromName, text: '收到看不懂的消息（' + m.kind + '）：可能需要刷新页面' }); });
+          return true;
+      }
+    } finally {
+      ui.quietRender = false;
+    }
+  }
+
+  function netGotText(e, m, fromName) {
+    var text = String(m.text || '').slice(0, 2000);
+    if (!text) return true;
+    netCommit('收到私信', function (s) { inboxAdd(s, { kind: 'text', from: e.from, fromName: fromName, text: text }); });
+    U.toast(fromName + '：' + (text.length > 40 ? text.slice(0, 40) + '…' : text), 'info');
+    return true;
+  }
+
+  function netGotRules(m) {
+    var v = C.validateRulesPack(m.pack);
+    if (!v.ok) return true;
+    netCommit('导入规则包（联机）', function (s) {
+      applyRulesPack(s, m.pack);
+      inboxAdd(s, { kind: 'system', from: 'host', fromName: '主持人', text: '收到主持人的规则包：规则、自定义物品与玩家名单已自动更新。' });
+      log(s, '导入主持人规则包（联机）');
+    });
+    return true;
+  }
+
+  function netGotOffer(m) {
+    if (!m.batchId || !Array.isArray(m.items)) return true;
+    netCommit('补给候选', function (s) {
+      s.netData.offers[m.batchId] = { batchId: m.batchId, label: String(m.label || '补给'), dayText: String(m.dayText || ''), items: m.items, at: Date.now(), pending: null };
+    });
+    U.toast('轮到你领取补给了：' + (m.label || ''), 'info');
+    return true;
+  }
+
+  function netGotOfferCancel(m) {
+    if (!state.netData.offers[m.batchId]) return true;
+    netCommit('补给候选收回', function (s) { delete s.netData.offers[m.batchId]; });
+    return true;
+  }
+
+  function netGotGrant(m) {
+    if (!m.grantId || !Array.isArray(m.items)) return true;
+    if (state.netData.grants[m.grantId]) return true; // 同一件补给只入库一次
+    var what = C.describeItems(m.items, state.customItems);
+    netCommit('收到补给', function (s) {
+      if (s.netData.grants[m.grantId]) return false;
+      C.receiveItems(s, m.items, m.grantId);
+      syncLoadout(s);
+      s.netData.grants[m.grantId] = { items: m.items, reason: String(m.reason || ''), at: Date.now() };
+      if (m.batchId) delete s.netData.offers[m.batchId];
+      inboxAdd(s, { kind: 'grant', from: 'host', fromName: '主持人', text: '收到补给：' + what + (m.reason ? '（' + m.reason + '）' : '') + '，已放进库存。' });
+      log(s, '收到补给（联机）：' + what);
+    });
+    U.toast('收到补给：' + what + '，已放进库存', 'ok');
+    return true;
+  }
+
+  function netGotRevoke(m) {
+    var g = state.netData.grants[m.grantId];
+    if (!g) {
+      netCommit('补给撤回', function (s) { inboxAdd(s, { kind: 'system', from: 'host', fromName: '主持人', text: '主持人撤回了一件补给，但这台设备没有收到过它，库存没有改动。' }); });
+      return true;
+    }
+    var missing = [];
+    netCommit('补给撤回', function (s) {
+      var gg = s.netData.grants[m.grantId];
+      if (!gg) return false;
+      var r = C.takeItems(s, gg.items, m.grantId);
+      missing = r.missing;
+      syncLoadout(s);
+      delete s.netData.grants[m.grantId];
+      var what = C.describeItems(gg.items, s.customItems);
+      inboxAdd(s, { kind: 'revoke', from: 'host', fromName: '主持人', text: (m.reason || '主持人撤回了补给') + '：' + what + (r.missing.length ? '。库存里已经没有，没能扣回：' + C.describeItems(r.missing, s.customItems) + '（请和主持人确认）' : '，已从库存扣回。') });
+      log(s, '补给被撤回（联机）：' + what + (r.missing.length ? '；没能扣回 ' + C.describeItems(r.missing, s.customItems) : ''));
+    });
+    U.toast(missing.length ? '主持人撤回了补给：有物品已经不在库存里，请看收件箱' : '主持人撤回了补给：已从库存扣回', 'warn');
+    return true;
+  }
+
+  function netGotPickFail(m) {
+    netCommit('领取没成功', function (s) {
+      var o = s.netData.offers[m.batchId];
+      if (o) o.pending = null;
+      inboxAdd(s, { kind: 'system', from: 'host', fromName: '主持人', text: '领取没成功：' + (m.reason || '请重新选择') });
+    });
+    U.toast('领取没成功：' + (m.reason || '请重新选择'), 'warn');
+    return true;
+  }
+
+  function netGotEffect(m) {
+    netCommit('收到事件结果', function (s) {
+      inboxAdd(s, { kind: 'effect', from: 'host', fromName: '主持人', text: String(m.text || ''), personal: m.personal || null, resId: m.resId || null, applied: false });
+    });
+    U.toast('收到事件结果：到收件箱查看', 'info');
+    return true;
+  }
+
+  function netGotGift(e, m, fromName) {
+    var items = (m.items || []).filter(function (it) { return it && typeof it.defId === 'string' && C.isInt(it.qty) && it.qty > 0; });
+    if (!items.length) return true;
+    var what = C.describeItems(items, state.customItems);
+    netCommit('收到赠予', function (s) {
+      C.receiveItems(s, items, 'gift:' + e.from);
+      syncLoadout(s);
+      inboxAdd(s, { kind: 'gift', from: e.from, fromName: fromName, text: fromName + ' 交给你：' + what + '，已放进库存。' });
+      log(s, '收到 ' + fromName + ' 的赠予（联机）：' + what);
+    });
+    U.toast(fromName + ' 交给你：' + what, 'ok');
+    return true;
+  }
+
+  var HEAL_TEXT = { 'bandage-heal': '绷带：恢复1生命', 'bandage-stop': '绷带：止血（清除一处流血伤口）', medkit: '医疗箱：清除伤病类负面状态，并恢复2生命' };
+
+  function netGotHeal(e, m, fromName) {
+    if (!HEAL_TEXT[m.effect]) return true;
+    var notes = [];
+    netCommit('被治疗', function (s) {
+      notes = applyHeal(s, m.effect);
+      inboxAdd(s, { kind: 'heal', from: e.from, fromName: fromName, text: fromName + ' 对你使用了' + HEAL_TEXT[m.effect] + '。' + (notes.length ? notes.join('；') + '。' : '') });
+      log(s, fromName + ' 对你使用了' + HEAL_TEXT[m.effect] + (notes.length ? '：' + notes.join('；') : ''));
+    });
+    U.toast(fromName + ' 对你使用了' + HEAL_TEXT[m.effect], 'ok');
+    return true;
+  }
+
+  /** 别人对你使用绷带／医疗箱：按已确认的效果自动修改（是否属伤病类待裁定的状态不自动清除）。 */
+  function applyHeal(s, effect) {
+    var notes = [];
+    if (effect === 'bandage-heal') {
+      s.hp += 1;
+      notes.push('生命 → ' + s.hp);
+    } else if (effect === 'bandage-stop') {
+      var b = s.statuses.filter(function (st) { return st.statusId === 'bleeding'; })[0];
+      if (b) {
+        s.statuses = s.statuses.filter(function (st) { return st.id !== b.id; });
+        notes.push('清除一处流血伤口');
+      } else notes.push('你没有流血伤口：状态没有改动');
+    } else if (effect === 'medkit') {
+      var pending = [];
+      var removed = [];
+      s.statuses = s.statuses.filter(function (st) {
+        var def = st.statusId ? C.getStatusDef(st.statusId) : null;
+        if (def && def.injury === true) { removed.push(st.name); return false; }
+        if (!def || def.injury !== false) pending.push(st.name);
+        return true;
+      });
+      s.hp += 2;
+      notes.push('生命 → ' + s.hp);
+      if (removed.length) notes.push('清除 ' + removed.join('、'));
+      if (pending.length) notes.push('是否属伤病类待裁定、没有自动清除：' + pending.join('、'));
+    }
+    return notes;
+  }
+
+  // ---------------------------------------------------------------- 发出去的
+
+  function netSent(id) {
+    if (!id || !state.netData.outgoing[id]) return;
+    netCommit('送达房间', function (s) { delete s.netData.outgoing[id]; });
+  }
+
+  /** 某一条没送出（房间拒收）：赠予、交公的物品放回库存。 */
+  function netError(d) {
+    var out = d.id ? state.netData.outgoing[d.id] : null;
+    if (out) {
+      netCommit('取回没送出的物品', function (s) {
+        var o = s.netData.outgoing[d.id];
+        if (!o) return false;
+        C.receiveItems(s, o.items);
+        delete s.netData.outgoing[d.id];
+        inboxAdd(s, { kind: 'system', from: 'system', text: '没送出（' + (d.message || d.code) + '）：' + C.describeItems(o.items, s.customItems) + ' 已放回库存。' });
+        log(s, '联机没送出，物品放回库存：' + C.describeItems(o.items, s.customItems));
+      });
+      U.toast('没送出：物品已放回库存', 'warn');
+      return;
+    }
+    if (d.code !== 'not-joined') U.toast(d.message || d.code, 'warn');
+  }
+
+  function netUp(m) {
+    return net.link ? net.link.post({ t: 'up', m: m }) : null;
+  }
+
+  /** 今天的行动：发给主持人页（轮到你时自动记录）。 */
+  function netReportAction(type) {
+    if (!netLive()) return;
+    var acts = net.snap && net.snap.actions;
+    if (acts && acts.acted.indexOf(myPid()) >= 0) {
+      U.toast('主持人已经记录了你今天的行动：要改请直接找主持人', 'warn');
+      return;
+    }
+    if (type) netUp({ kind: 'action', type: type, day: today(), note: state.action.note || '' });
+    else netUp({ kind: 'action-cancel', day: today() });
+  }
+
+  function netSendWatch(plan) {
+    if (!netLive() || plan.chosen == null) return;
+    netUp({ kind: 'watch', data: { v: 2, day: plan.day, from: state.name || '', card: plan.cards[plan.chosen] } });
+    netCommit('守夜卡已发出', function (s) {
+      if (!s.watchPlan) return false;
+      s.watchPlan.sentAt = Date.now();
+      s.watchPlan.sentChoice = s.watchPlan.chosen;
+      log(s, '守夜卡（' + '第 ' + (s.watchPlan.chosen + 1) + ' 张' + '）通过房间交给主持人');
+    });
+    U.toast('已交给房间：主持人页会自动加入候选', 'ok');
+  }
+
+  function netVote(flowId, optionId, label) {
+    if (!netLive()) return;
+    netUp({ kind: 'vote', flowId: flowId, optionId: optionId });
+    netCommit('投票', function (s) {
+      s.netData.ballots[flowId] = optionId;
+      log(s, '投票：' + label);
+    });
+  }
+
+  function netPick(offer, piece) {
+    U.confirmBox('领取「' + piece.name + '」？', '交给主持人页确认后会自动放进你的库存。', '领取', 'primary').then(function (ok) {
+      if (!ok || !netLive()) return;
+      netUp({ kind: 'supply-pick', batchId: offer.batchId, pieceId: piece.id });
+      netCommit('领取补给', function (s) {
+        var o = s.netData.offers[offer.batchId];
+        if (!o) return false;
+        o.pending = piece.id;
+        log(s, '领取补给：选择 ' + piece.name + '（等主持人页确认）');
+      });
+    });
+  }
+
+  /**
+   * 赠予、交公直接送出时：在扣库存的同一次 netCommit 里记下 outgoing（房间收下前送不出去就放回库存），
+   * commit 成功后再 netPostItems。直接送出的扣库存不能撤销（对方已经收到了），所以走 netCommit。
+   */
+  function recordOutgoing(s, id, kind, to, toName, items) {
+    s.netData.outgoing[id] = { kind: kind, to: to, toName: toName || '', items: items, at: Date.now() };
+  }
+
+  function netPostItems(id, kind, to, items, note) {
+    if (kind === 'gift') net.link.post({ t: 'p2p', to: to, m: { id: id, kind: 'gift', items: items, day: today() } });
+    else net.link.post({ t: 'up', m: { id: id, kind: 'deposit', items: items, day: today(), reason: note || '' } });
+  }
+
+  function netSendHeal(pid, effect) {
+    net.link.post({ t: 'p2p', to: pid, m: { kind: 'heal', effect: effect, text: HEAL_TEXT[effect], day: today() } });
+  }
+
+  function netSendNote(text) {
+    if (!netLive() || !text) return;
+    netUp({ kind: 'note', text: text });
+    netCommit('给主持人留言', function (s) {
+      inboxAdd(s, { kind: 'note', from: 'me', fromName: '我', text: '发给主持人：' + text });
+      log(s, '给主持人留言：' + text);
+    });
+    U.toast('已交给房间：主持人页会显示', 'ok');
+  }
+
+  /** 收件箱里的事件结果：点「应用」按个人效果改自己的存档（这是自己的操作，可以撤销）。 */
+  function applyEffect(entryId) {
+    commit('应用事件结果', function (s) {
+      var x = s.inbox.filter(function (i) { return i.id === entryId; })[0];
+      if (!x || x.applied) return false;
+      var notes = C.applyPersonalEffects(s, x.personal, s.publicInfo.day);
+      syncLoadout(s);
+      x.applied = true;
+      log(s, '应用事件结果：' + (notes.length ? notes.join('；') : '没有个人效果'));
+    });
+  }
+
+  // ---------------------------------------------------------------- 显示
+
+  function netStatusText() {
+    var map = {
+      online: ['在线', 'ok'], connecting: ['连接中…', 'info'], reconnecting: ['重连中…', 'warn'], lobby: ['加入中', 'info'],
+      idle: ['未连接', ''], stopped: ['已停止', 'danger'], elsewhere: ['在另一个标签页联机', 'info']
+    };
+    var x = map[net.status] || [net.status, ''];
+    return { text: x[0], cls: x[1] };
+  }
+
+  /** 顶栏小标签：在房间里时显示状态和未读消息数。 */
+  function netChip() {
+    if (!net.cfg) return null;
+    var unread = inboxUnread();
+    var st = netStatusText();
+    // 手机上只显示圆点和未读数（文字收起，读屏软件读 aria-label）
+    return h('button', { type: 'button', class: 'net-chip st-' + net.status, onclick: function () { setTab('net'); }, title: '联机房间 ' + net.cfg.code, 'aria-label': '联机房间 ' + net.cfg.code + '：' + st.text + (unread ? '，' + unread + ' 条未读' : '') },
+      h('span', { class: 'net-dot' }), h('span', { class: 'net-chip-text' }, net.status === 'online' ? '联机' : st.text),
+      unread ? h('span', { class: 'net-unread' }, String(unread)) : null);
+  }
+
+  function renderNet() {
+    markInboxRead();
+    if (!net.cfg) return h('div', { class: 'stack' }, netJoinCard(), netHelpCard());
+    if (!netJoined()) return h('div', { class: 'stack' }, netLobbyCard(), netHelpCard());
+    return h('div', { class: 'stack' },
+      netRoomCard(),
+      netLivePanel(true),
+      netInboxCard(),
+      netNoteCard(),
+      netHelpCard());
+  }
+
+  function netJoinCard() {
+    var code = h('input', { type: 'text', class: 'net-code-input', placeholder: '例如 K7M2Q', maxlength: 8, autocapitalize: 'characters', autocomplete: 'off', 'aria-label': '房间码' });
+    var server = h('input', { type: 'text', value: net.server || '', placeholder: ShelterNet.DEFAULT_SERVER });
+    server.addEventListener('change', function () { net.server = server.value.trim(); });
+    code.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); netJoin(code.value, net.server); } });
+    return h('section', { class: 'card' },
+      h('div', { class: 'card-head' }, h('h2', null, '加入联机房间')),
+      h('p', null, '主持人开了房间时，扫主持人给的二维码或点加入链接就能进来；也可以在这里输入房间码。'),
+      h('div', { class: 'row' }, code, h('button', { type: 'button', class: 'btn primary', onclick: function () { netJoin(code.value, net.server); } }, '加入')),
+      h('p', { class: 'muted small' }, '加入后：公开信息实时显示；领到的补给、别人赠予的物品自动进库存；行动、投票、守夜卡直接交给主持人。不加入也能照常使用本页。'),
+      ShelterNet.lan() ? null : h('details', null, h('summary', null, '自定义服务器地址（一般不用改）'), U.field('服务器', server, '留空＝默认云端服务器')));
+  }
+
+  function netLobbyCard() {
+    var st = netStatusText();
+    var lobby = net.lobby;
+    var head = h('div', { class: 'card-head' }, h('h2', null, '加入房间 ' + net.cfg.code), chip(st.text, st.cls));
+    var cancel = h('button', { type: 'button', class: 'btn small', onclick: function () { netLeaveLocal(null); } }, '取消加入');
+    if (net.status === 'elsewhere') {
+      return h('section', { class: 'card' }, head, h('p', null, '另一个标签页正在用这个房间。'),
+        h('div', { class: 'row' }, h('button', { type: 'button', class: 'btn primary', onclick: function () { netStart(); render(); } }, '改在本页联机'), cancel));
+    }
+    if (net.requested) {
+      return h('section', { class: 'card' }, head,
+        h('p', { class: 'net-wait' }, '已经提出加入请求，等主持人通过…'),
+        h('p', { class: 'muted small' }, '主持人通过后自动进入；可以先去别的页看看。'),
+        h('div', { class: 'row' }, cancel));
+    }
+    if (!lobby) {
+      return h('section', { class: 'card' }, head, h('p', null, net.status === 'reconnecting' ? '连不上联机服务器，正在重试…' : '正在连接…'),
+        h('p', { class: 'muted small' }, '服务器：' + net.cfg.base.replace(/^https?:\/\//, '')), h('div', { class: 'row' }, cancel));
+    }
+    var roster = lobby.roster || [];
+    var nameInput = h('input', { type: 'text', placeholder: '你的名字', value: state.name || '' });
+    return h('section', { class: 'card' }, head,
+      roster.length ? h('p', null, '你是谁？点自己的名字，主持人通过后就加入了。') : h('p', null, '主持人还没公布玩家名单：填上你的名字提出请求，由主持人对上号。'),
+      roster.length ? h('div', { class: 'net-roster' }, roster.map(function (p) {
+        return h('button', { type: 'button', class: 'btn net-name' + (p.name === state.name ? ' primary' : ''), 'data-roster': p.id, onclick: function () { netRequest(p.id, p.name); } },
+          p.name, p.joined ? h('span', { class: 'muted small' }, '（已有设备）') : null, p.alive === false ? h('span', { class: 'muted small' }, '（已死亡）') : null);
+      })) : h('div', { class: 'row' }, nameInput, h('button', {
+        type: 'button', class: 'btn primary', onclick: function () {
+          if (!nameInput.value.trim()) { U.toast('请填写名字', 'warn'); return; }
+          netRequest(null, nameInput.value.trim());
+        }
+      }, '提出请求')),
+      lobby.hostOnline ? null : h('p', { class: 'muted small' }, '主持人现在不在线：请求会在主持人回来后显示。'),
+      h('p', { class: 'muted small' }, '选了已有设备的名字：主持人通过后，那台设备会断开（换手机时用）。'),
+      h('div', { class: 'row' }, cancel));
+  }
+
+  function netRoomCard() {
+    var st = netStatusText();
+    var pending = net.link && net.status !== 'online' ? net.link.pending() : 0;
+    return h('section', { class: 'card net-room' },
+      h('div', { class: 'card-head' }, h('h2', null, '联机房间 ' + net.cfg.code), chip(st.text, st.cls)),
+      h('p', null, '你是 ', h('b', null, net.cfg.name || state.name || '?'), net.hostOnline ? '' : h('span', { class: 'muted small' }, '（主持人暂时不在线：消息会先存在房间里）')),
+      pending ? h('p', { class: 'muted small' }, '待发 ' + pending + ' 条：连上后自动补发。') : null,
+      h('div', { class: 'row' },
+        net.status === 'elsewhere' || net.status === 'stopped' ? h('button', { type: 'button', class: 'btn primary', onclick: function () { netStart(); render(); } }, '改在本页联机') : null,
+        h('button', { type: 'button', class: 'btn small', onclick: netLeave }, '离开房间')));
+  }
+
+  /** 公开信息面板。full：联机页的完整版；否则是总览页上的精简版（只放要你动手的和最要紧的）。 */
+  function netLivePanel(full) {
+    var snap = net.snap;
+    if (!snap) return h('section', { class: 'card pn-live' }, h('p', { class: 'muted' }, '等主持人公开信息…'));
+    var me = myPid();
+    var parts = [];
+    var phase = snap.started ? '第 ' + snap.day + ' 天' + ' · ' + (snap.phaseNo != null ? '阶段' + snap.phaseNo + ' ' : '') + snap.phaseName : '游戏还没开始';
+    parts.push(h('div', { class: 'pn-head' },
+      h('div', { class: 'pn-phase' }, phase),
+      snap.timer && (snap.timer.running || snap.timer.remainingMs !== snap.timer.durationMs) ? h('div', { class: 'pn-timer' + (snap.timer.running ? ' running' : '') }, U.icon('timer'), h('span', { 'data-net-timer': '1' }, U.fmtClock(netTimerLeft() || 0))) : null));
+    if (full && snap.phaseDesc) parts.push(h('p', { class: 'muted small' }, snap.phaseDesc));
+    var acts = snap.actions;
+    if (acts && snap.phase === 'actions') {
+      var myTurn = acts.current === me;
+      var done = acts.acted.indexOf(me) >= 0;
+      parts.push(h('div', { class: 'pn-turn' + (myTurn ? ' me' : '') },
+        myTurn ? h('b', null, '轮到你行动了') : h('span', null, acts.current ? '正在行动：' + snapName(acts.current) : '本轮行动已结束'),
+        done ? chip('你的行动已记录', 'ok') : state.action.day === today() && state.action.used ? chip('已选：' + actionName(state.action.type) + '（轮到你时自动记录）', 'info') : null,
+        myTurn && !(state.action.day === today() && state.action.used) ? h('button', { type: 'button', class: 'btn small primary', onclick: function () { setTab('action'); } }, '去选择行动') : null));
+      if (full) {
+        parts.push(h('ol', { class: 'pn-order' }, acts.order.map(function (id) {
+          var cls = (acts.acted.indexOf(id) >= 0 ? 'done' : id === acts.current ? 'current' : '') + (id === me ? ' me' : '');
+          return h('li', { class: cls }, snapName(id), acts.acted.indexOf(id) >= 0 ? ' ✓' : '');
+        })));
+      }
+    }
+    var offers = Object.keys(state.netData.offers).map(function (k) { return state.netData.offers[k]; });
+    offers.forEach(function (o) {
+      parts.push(h('div', { class: 'pn-offer', 'data-offer': o.batchId },
+        h('div', null, h('b', null, '轮到你领取：' + o.label), o.dayText ? h('span', { class: 'muted small' }, ' ' + o.dayText) : null),
+        o.pending ? h('p', { class: 'small' }, '已选，等主持人页确认…') : h('p', { class: 'muted small' }, '点一件领取；领到的自动放进库存。'),
+        h('div', { class: 'pn-items' }, o.items.map(function (p) {
+          return h('button', { type: 'button', class: 'btn' + (o.pending === p.id ? ' primary' : ''), disabled: !!o.pending, 'data-piece': p.id, onclick: function () { netPick(o, p); } }, p.name);
+        }))));
+    });
+    if (full && snap.batches && snap.batches.length) {
+      parts.push(h('ul', { class: 'list-plain pn-batches' }, snap.batches.map(function (b) {
+        return h('li', null, h('b', null, b.label), ' · ' + (b.next ? '下一位领取：' + snapName(b.next) : '已领完') + '（已领 ' + b.picked.length + '／' + b.order.length + '）');
+      })));
+    }
+    if (snap.event) parts.push(netEventBlock(snap, full));
+    if (full) {
+      parts.push(h('div', { class: 'pn-rescue' }, h('b', null, '营救进度 '), String(snap.rescue.progress), snap.rescue.target != null ? '／' + snap.rescue.target : '（阈值未知）'));
+      if (snap.watch) parts.push(h('p', null, h('b', null, '今晚守夜：'), snap.watch.names.join('、') || '（无）'));
+      if (snap.seats && snap.seats.length) {
+        parts.push(h('div', null, h('b', null, '座次 '), h('span', { class: 'pn-seats' }, snap.seats.map(function (id, i) {
+          return h('span', { class: 'pn-seat' + (id === me ? ' me' : '') }, (i + 1) + '. ' + snapName(id));
+        }))));
+      }
+      if (snap.poolCount != null) parts.push(h('p', { class: 'muted small' }, '公共池剩余 ' + snap.poolCount + ' 件'));
+      if (snap.feed && snap.feed.length) {
+        parts.push(h('div', null, h('h3', null, '公开结果'), h('ul', { class: 'pn-feed' }, snap.feed.slice().reverse().slice(0, 12).map(function (f) {
+          return h('li', null, h('span', { class: 'muted small' }, '第' + f.day + '天'), ' ', f.text);
+        }))));
+      }
+    }
+    return h('section', { class: 'card pn-live' + (full ? ' full' : '') }, full ? h('div', { class: 'card-head' }, h('h2', null, '公开信息'), chip(netStatusText().text, netStatusText().cls)) : null, parts);
+  }
+
+  function netEventBlock(snap, full) {
+    var ev = snap.event;
+    var vote = snap.vote && snap.vote.flowId === ev.flowId ? snap.vote : null;
+    var mine = vote ? state.netData.ballots[vote.flowId] : null;
+    var alive = snapPlayers().filter(function (p) { return p.alive !== false; }).length;
+    var meAlive = state.alive !== false;
+    return h('div', { class: 'pn-event' },
+      h('div', { class: 'pn-event-title' }, h('b', null, '公共事件：' + ev.name), ev.location ? h('span', { class: 'muted small' }, ' · ' + ev.location) : null),
+      full || !vote || !vote.open ? (ev.body ? h('p', { class: 'small' }, ev.body) : null) : null,
+      vote ? h('div', { class: 'pn-vote' },
+        vote.open
+          ? h('p', { class: 'small' }, '投票中：已投 ' + vote.voters.length + '／' + alive + (vote.voters.indexOf(myPid()) >= 0 ? '（你已投，可以改票）' : ''))
+          : h('p', { class: 'small' }, '投票结束' + (vote.result ? '：结果「' + (vote.options.filter(function (o) { return o.id === vote.result; })[0] || { label: '?' }).label + '」' : '')),
+        h('div', { class: 'pn-vote-btns' }, vote.options.map(function (o) {
+          var count = vote.counts ? vote.counts[o.id] : null;
+          return h('button', {
+            type: 'button', class: 'btn pn-vote-btn' + (mine === o.id ? ' primary' : ''), 'data-vote': o.id,
+            disabled: !vote.open || !meAlive, 'aria-pressed': mine === o.id ? 'true' : 'false',
+            onclick: function () { netVote(vote.flowId, o.id, o.letter + '. ' + o.label); }
+          }, h('b', null, o.letter), ' ' + o.label, count != null ? h('span', { class: 'pn-count' }, count + ' 票') : null);
+        })),
+        meAlive ? null : h('p', { class: 'muted small' }, '已死亡的玩家不能投票。'))
+        : (ev.options && ev.options.length ? h('p', { class: 'muted small' }, '投票选项：' + ev.options.map(function (o, i) { return String.fromCharCode(65 + i) + '. ' + o; }).join(' ／ ') + '（在 Discord 投票）') : null));
+  }
+
+  /** 总览页顶部：在房间里时显示现场情况（要你动手的排在前面）。 */
+  function netLiveCard() {
+    if (!netJoined()) return null;
+    var unread = inboxUnread();
+    var panel = netLivePanel(false);
+    panel.insertBefore(h('div', { class: 'card-head' }, h('h2', null, '联机 · 现场'),
+      h('span', { class: 'row tight' },
+        unread ? h('button', { type: 'button', class: 'btn small primary', onclick: function () { setTab('net'); } }, '收件箱 ' + unread + ' 条新消息') : null,
+        linkBtn('详情', 'net'))), panel.firstChild);
+    return panel;
+  }
+
+  function netInboxCard() {
+    var list = state.inbox || [];
+    var kindNames = { text: '私信', grant: '补给', revoke: '已撤回', gift: '收到赠予', heal: '治疗', effect: '事件结果', system: '系统', note: '留言' };
+    return h('section', { class: 'card pn-inbox' },
+      h('div', { class: 'card-head' }, h('h2', null, '收件箱'), h('span', { class: 'muted small' }, list.length + ' 条')),
+      list.length ? h('ul', { class: 'list-plain' }, list.slice(0, 80).map(function (x) {
+        return h('li', { class: 'pn-msg k-' + x.kind, 'data-inbox': x.id },
+          h('div', { class: 'pn-msg-meta' }, chip(kindNames[x.kind] || x.kind, x.kind === 'grant' || x.kind === 'gift' || x.kind === 'heal' ? 'ok' : x.kind === 'revoke' ? 'warn' : ''),
+            h('span', { class: 'muted small' }, (x.fromName ? x.fromName + ' · ' : '') + U.fmtTime(x.at))),
+          h('div', { class: 'pn-msg-text' }, x.text),
+          x.kind === 'effect' && x.personal ? (x.applied ? chip('已应用', 'ok')
+            : h('div', { class: 'row' }, h('button', { type: 'button', class: 'btn small primary', onclick: function () { applyEffect(x.id); } }, '应用到我的存档'),
+              h('span', { class: 'muted small' }, '不是给你的效果就不用点'))) : null);
+      })) : h('p', { class: 'empty' }, '还没有消息。主持人的私信、领到的补给、别人的赠予都会出现在这里。'));
+  }
+
+  function netNoteCard() {
+    var box = h('textarea', { rows: 2, placeholder: '例如：我想用子弹换水，可以吗？' });
+    box.value = ui.drafts.netNote || '';
+    box.addEventListener('input', function () { ui.drafts.netNote = box.value; });
+    return h('section', { class: 'card' },
+      h('div', { class: 'card-head' }, h('h2', null, '给主持人留言')),
+      box,
+      h('div', { class: 'row' }, h('button', {
+        type: 'button', class: 'btn', onclick: function () {
+          var text = (ui.drafts.netNote || '').trim();
+          if (!text) { U.toast('请先输入内容', 'warn'); return; }
+          ui.drafts.netNote = '';
+          netSendNote(text);
+        }
+      }, '发送')),
+      h('p', { class: 'muted small' }, '只有主持人看得到。主持人不在线时先存在房间里。'));
+  }
+
+  function netHelpCard() {
+    return h('details', { class: 'card' },
+      h('summary', null, h('b', null, '联机怎么用')),
+      h('ul', null,
+        h('li', null, '扫主持人的二维码或点加入链接 → 选自己的名字 → 主持人通过。'),
+        h('li', null, '天数、座次、名单自动和主持人同步；轮到你行动、领补给、投票时页面会提醒。'),
+        h('li', null, '领到的补给、别人赠予的物品自动放进库存；交公、赠予已加入房间的玩家时自动从你的库存扣除并送到对方。'),
+        h('li', null, '对方没加入房间时，照旧生成交接文本。'),
+        h('li', null, '断线不要紧：消息先存在房间里，重新连上后自动补收、补发。')));
+  }
+
+
   // ================================================================ 启动
 
   function boot() {
@@ -2391,6 +3419,7 @@
     document.title = U.T(PAGE_TITLE);
     if (tab && TABS.some(function (t) { return t.id === tab; })) ui.tab = tab;
     state = loadState();
+    netBoot();
     // 点击「更多」面板以外的地方时收起
     document.addEventListener('click', function (e) {
       // 点击后被重绘掉的按钮已脱离文档，不能据此判断是「点在外面」
@@ -2402,7 +3431,17 @@
     save();
     render();
     scavTimer = setInterval(scavTick, 100);
-    document.addEventListener('visibilitychange', function () { if (!document.hidden) scavTick(); });
+    setInterval(netTick, 500);
+    document.addEventListener('visibilitychange', function () {
+      if (document.hidden) return;
+      scavTick();
+      if (net.link) net.link.wake();
+    });
+    window.addEventListener('online', function () { if (net.link) net.link.wake(); });
+    // 联机消息来时正在输入：离开输入框（且没在点按钮）后再补画主体
+    document.addEventListener('focusout', function () { if (ui.mainStale) setTimeout(flushStale, 300); });
+    document.addEventListener('pointerdown', function () { ui.pointerDown = true; }, true);
+    document.addEventListener('pointerup', function () { ui.pointerDown = false; if (ui.mainStale) setTimeout(flushStale, 80); }, true);
     window.addEventListener('storage', function (e) {
       if (e.key === (slot === 'demo' ? KEY_DEMO : KEY_MAIN)) {
         notices.push({ kind: 'risk', text: '另一个标签页修改了同一份玩家存档。请只保留一个标签页，然后刷新本页。' });

@@ -1230,3 +1230,201 @@ Discord 投票	Discord vote
  件候选	 candidates
 （已重抽：	~
 ，已重抽：	~
+联机	Online
+玩家页投票	Player-page vote
+玩家页已选：	Chosen on player page: 
+（轮到时自动记录）	 (auto-recorded on their turn)
+：已交给房间，玩家页自动入库	: handed to the room — added to their inventory automatically
+已撤回：玩家页会自动扣回这件物品	Withdrawn: their player page removes this item automatically
+已加入房间的玩家：玩家页会自动扣回领到的物品	Players in the room: their pages remove the items they received automatically
+已提交（玩家页）	Submitted (player page)
+收到链接时补记	recorded when the link arrived
+不等投票，直接录入结果	Record the result now (without waiting for the vote)
+属于你的个人效果：点「应用」自动修改你的生命、状态与物品。	If these personal effects are yours, tap “Apply” to update your HP, statuses and items automatically.
+这次没有个人效果，看过即可。	No personal effects this time — just for your information.
+发到玩家页（可一键应用个人效果）	Send to player pages (personal effects apply in one tap)
+主持人撤回了「	The host withdrew what you received in “
+」里领到的这件	”
+房间已开好：	Room open: 
+连不上联机服务器	Cannot reach the online server
+服务器：	Server: 
+网络错误	network error
+局域网服务器好像没有在运行：请确认主持人电脑上的 shelter-lan 窗口还开着。	The LAN server doesn't seem to be running: make sure the shelter-lan window on the host's computer is still open.
+云端服务器还没部署，或者当前网络连不上它。也可以用局域网版：在入口页下载 shelter-lan.mjs，在主持人电脑上运行。	The cloud server isn't deployed yet, or this network can't reach it. You can also use the LAN version: download shelter-lan.mjs from the home page and run it on the host's computer.
+关闭房间？	Close the room?
+所有玩家会断开，房间里暂存的消息一并删除。游戏存档不受影响，之后可以再开新房间。	All players are disconnected and any messages waiting in the room are deleted. Your game save is not affected; you can open a new room later.
+关闭房间	Close room
+房间已关闭	Room closed
+联机已转到另一个标签页或设备：本页不再处理联机消息。	Online play moved to another tab or device: this page no longer handles room messages.
+这个房间的主持人密钥不对，已经离开房间。	The host key for this room is wrong; left the room.
+房间不存在或已经过期，已经离开房间。	The room doesn't exist or has expired; left the room.
+房间已经关闭。	The room has been closed.
+页面版本和联机服务器不一致：请刷新页面。	This page's version doesn't match the online server: please reload the page.
+联机已停止（	Online play stopped (
+有人	Someone
+ 加入了房间	 joined the room
+ 请求加入，等你通过	 asked to join — waiting for your approval
+ 请求加入：到「联机」页通过	 asked to join: approve on the “Online” tab
+主持人没有通过	The host declined
+移出 	Remove 
+这台设备会断开，加入凭证作废；以后可以重新加入（例如换手机时）。	This device is disconnected and its join pass revoked; they can join again later (e.g. after switching phones).
+移出	Remove
+规则包已排队发给 	Rules pack queued for 
+ 位玩家	 players
+记录行动（玩家页）	Record action (player page)
+还没轮到 	Not yet the turn of 
+（玩家页）	 (player page)
+收到不在名单里的玩家发来的消息，已忽略	Ignored a message from a player who is not on the roster
+ 发来看不懂的消息（	 sent a message this page doesn't understand (
+）：可能需要刷新页面	): a page may need reloading
+赠予 	gave 
+治疗 	treated 
+联机记录	Online log
+（玩家之间）	 (between players)
+ 上报的「	 reported “
+」不是今天的行动，没有记录	”, which is not for today — not recorded
+主持人页没有记录你的行动：	The host page did not record your action: 
+你的页面天数和主持人不一致，请等页面同步后再选。	your page's day differs from the host's — wait for it to sync, then choose again.
+游戏还没开始。	the game hasn't started yet.
+ 想尝试换位：请在主持台用「换位请求」记录	 wants to try a swap: record it with “Swap request” on the console
+ 想尝试换位：请用「换位请求」记录	 wants to try a swap: record it with “Swap request”
+换位要双方同意：轮到你时告诉主持人想和谁换，由主持人记录结果。	A swap needs both sides to agree: on your turn, tell the host who you want to swap with; the host records the result.
+ 在玩家页改成了「	 changed on their page to “
+」：本轮已有记录，要改请先撤销	”: already recorded this round — undo it first to change
+ 改了行动：本轮已有记录，要改请先撤销	 changed their action: already recorded this round — undo it first to change
+你今天的行动已经记录，改成「	Your action for today is already recorded, so changing it to “
+」没有生效：要改请直接找主持人。	” had no effect — ask the host directly to change it.
+玩家页行动	Action from player page
+本轮已有记录	Already recorded this round
+ 在玩家页选了「	 chose on their page: “
+ 选了「	 chose “
+玩家页取消行动	Player page cancelled action
+ 在玩家页取消了行动	 cancelled their action on their page
+ 取消了还没记录的行动	 cancelled an action that was not recorded yet
+ 在玩家页取消了行动：本轮已经记录，需要的话请手动撤销	 cancelled their action on their page: already recorded this round — undo it manually if needed
+ 取消了行动：本轮已经记录，需要的话请手动撤销	 cancelled their action: already recorded this round — undo it manually if needed
+：计划守夜名单（	: planned the watch roster (
+今天的守夜名单已经确认，你的卡片没有加进候选。	Today's watch roster is already confirmed; your card was not added to the candidates.
+收到守夜卡片（玩家页）	Watch card received (player page)
+玩家页发来时补记	recorded when sent from the player page
+ 的守夜卡片	's watch card
+（注意：这张卡不是今天抽的）	 (note: this card was not drawn today)
+这次投票已经结束，你的票没有计入。	This vote has ended; your vote was not counted.
+已死亡的玩家不能投票。	Dead players cannot vote.
+投票（玩家页）	Vote (player page)
+投票已经结束	The vote has ended
+投票：	Vote: 
+ 选「	 chose “
+ 投了票	 voted
+ 领取没成功：	 could not pick: 
+这批补给已经结束	This supply batch has ended
+还没轮到你：现在轮到 	Not your turn yet — now picking: 
+这批补给已经领完	This supply batch has all been picked
+领取补给（玩家页）	Pick supplies (player page)
+ 领取	 to pick
+这件已经被选走或不在候选里：请重新选	That item was already taken or isn't in the batch: please choose again
+ 领取了 	 picked 
+交公（玩家页）	To pool (player page)
+ 交给公共池：	 gave to the pool: 
+公共池收到交公：	Pool received a hand-in: 
+ 交公：	 handed in: 
+玩家留言	Player note
+ 发来：	 says: 
+公布事件正文后，可以让玩家直接在自己的页面投票。	Once the event text is published, players can vote directly on their own pages.
+在玩家页面发起投票	Start a vote on player pages
+玩家页投票进行中	Player-page vote in progress
+玩家页投票已结束	Player-page vote ended
+已投 	Voted 
+在房间里的存活玩家：	Living players in the room: 
+。他们可以在自己的页面投；其余玩家照常在 Discord 投，由主持人合并后直接录入结果。	. They can vote on their own pages; the rest vote on Discord as usual — merge the results and record them directly.
+ 票	 vote(s)
+结束投票并采用结果	End the vote and use the result
+平票：请主持人裁定（用上面的选择框录入）	Tie: the host decides (record it with the selector above)
+没有人投票：请主持人裁定	No votes: the host decides
+重新投票	Vote again
+发起投票	Start vote
+在玩家页发起投票：	Started a player-page vote: 
+结束投票	End vote
+投票结束：	Vote ended: 
+按多数票录入：	Recorded by majority: 
+平票或没有人投票：请主持人裁定	Tie or no votes: the host decides
+重新在玩家页投票：	Vote again on player pages: 
+玩家页投票中：已投 	Player-page vote in progress: voted 
+联机私信	Online DM
+私信 	DM to 
+所有玩家	all players
+已交给房间：所有已加入的玩家都会收到	Handed to the room: every joined player gets it
+已交给房间：	Handed to the room: 
+ 会收到	 will get it
+直接发到 	Send directly to 
+ 的玩家页	's player page
+还没有玩家加入房间	No players have joined the room yet
+把事件结果发给玩家	Send the event result to players
+勾选受影响的玩家：他们的收件箱会收到结果通知；有个人效果时，玩家点「应用」就会自动改自己的生命、状态与物品。	Tick the affected players: the result goes to their inboxes; if there are personal effects, they tap “Apply” to update their own HP, statuses and items.
+发送	Send
+没有勾选玩家	No players ticked
+发送事件结果	Send event result
+把事件结果 	Sent event result 
+ 发给：	 to: 
+在线	Online
+连接中…	Connecting…
+重连中…	Reconnecting…
+未连接	Not connected
+已停止	Stopped
+在另一个标签页联机	Online in another tab
+联机房间 	Online room 
+联机 	Online 
+在线 	online 
+私信与联机记录	DMs & online log
+联机房间	Online room
+未联机	Offline
+开一个房间，玩家扫码或点链接加入后：公开信息实时显示在玩家手机上；行动、守夜卡、投票、领取补给、交公直接送到这里；私信和发放的物品直接送到玩家页面。不开房间时一切照旧。	Open a room and let players join by QR code or link. Then public info shows live on their phones; actions, watch cards, votes, supply picks and hand-ins come straight here; DMs and handed-out items go straight to their pages. Without a room, everything works as before.
+这个页面是局域网服务器打开的：房间开在这台电脑上，玩家要连同一个网络。	This page was opened from the LAN server: the room runs on this computer, and players must be on the same network.
+房间开在云端服务器（	The room runs on the cloud server (
+正在开房间…	Opening room…
+开房间	Open room
+先在「设置与存档」登记玩家：玩家加入时要从名单里选自己的名字。	Add players under “Settings & save” first: when joining, players pick their name from the roster.
+自定义服务器地址（一般不用改）	Custom server address (usually leave as is)
+服务器	Server
+留空＝默认云端服务器	Leave empty = default cloud server
+公开展示二维码	Show QR code on public display
+加入二维码	Join QR code
+房间码	Room code
+复制加入链接	Copy join link
+发到 Discord，玩家点开即可加入	Post it on Discord; players open it to join
+自动通过加入请求（名字在名单里、还没人用时）	Auto-approve join requests (name on the roster and not taken)
+在公开展示页显示二维码	Show the QR code on the public display
+断开（保留房间）	Disconnect (keep room)
+改在本页联机	Go online in this tab
+重新连接	Reconnect
+ · 待发 	 · pending 
+ 条（连上后自动补发）	 (sent once connected)
+玩家加入情况	Players in the room
+已加入 	Joined 
+ · 在线 	 · online 
+等待通过	Waiting for approval
+（已有设备）	 (has a device)
+申请的名字：	Requested name: 
+（没填）	 (blank)
+绑定到	Bind to
+通过请求	Approve
+已加入 · 在线	Joined · online
+已加入 · 离线	Joined · offline
+未加入	Not joined
+重新发送规则包给所有玩家	Resend the rules pack to all players
+所有已加入的玩家	All joined players
+私信	DM
+发给	To
+内容	Message
+例如：今晚守夜的人请准备好携带物品。	e.g. Tonight's watch: please get your carried items ready.
+对方离线时先存在房间里，上线后收到。	If they're offline, it waits in the room until they're back.
+本次打开页面以来；完整记录见「日志」	Since this page was opened; full record under “Log”
+还没有联机消息。	No online messages yet.
+联机怎么用	How online play works
+主持人开房间 → 玩家扫二维码或点加入链接 → 选自己的名字 → 主持人通过（可设为自动通过）。	The host opens a room → players scan the QR code or open the join link → pick their name → the host approves (or turns on auto-approve).
+玩家页会实时看到公开信息；轮到谁行动、领补给、投票，都在玩家自己的页面上点。	Player pages show public info live; taking turns, picking supplies and voting all happen on each player's own page.
+领到的补给、别人赠予的物品会自动进玩家库存；交公自动进公共池；撤回发放时玩家库存自动扣回。	Supplies received and items gifted by others go into players' inventories automatically; hand-ins go into the pool; withdrawing a hand-out removes it from the player's inventory automatically.
+断线不要紧：消息先存在房间里，重新连上后自动补收；房间 14 天没有动静会自动删除。	Dropped connections are fine: messages wait in the room and arrive after reconnecting. A room with no activity for 14 days is deleted automatically.
+局域网：在入口页下载 shelter-lan.mjs，主持人电脑运行 node shelter-lan.mjs，大家连同一个 Wi‑Fi 打开窗口里显示的地址。	LAN: download shelter-lan.mjs from the home page, run node shelter-lan.mjs on the host's computer, and everyone on the same Wi‑Fi opens the address shown in its window.
+扫码加入	Scan to join
+用手机扫码，或在玩家页输入房间码。	Scan with your phone, or enter the room code on the player page.

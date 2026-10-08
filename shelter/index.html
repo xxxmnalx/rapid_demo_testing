@@ -35,6 +35,12 @@
   h3 { font-size: 17px; margin: 28px 0 6px; }
   footer { margin-top: 36px; color: var(--muted); font-size: 13.5px; display: flex; gap: 16px; flex-wrap: wrap; }
   footer a { color: var(--teal); }
+  .online { margin-top: 28px; padding: 18px 20px; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; }
+  .online h3 { margin-top: 0; }
+  .online p { margin: 0 0 8px; color: var(--ink-2); font-size: 15px; }
+  .online code { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 14px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; }
+  .dl { display: inline-flex; align-items: center; gap: 6px; margin-top: 6px; padding: 8px 14px; border-radius: 8px; border: 1px solid var(--teal); background: var(--teal); color: #fff; font-weight: 650; font-size: 15px; text-decoration: none; }
+  .dl:hover, .dl:focus-visible { background: var(--teal-strong); outline: none; }
   .reset-link { font: inherit; padding: 0; border: 0; background: none; color: #a8321f; text-decoration: underline; cursor: pointer; }
   .reset-link:focus-visible { outline: 3px solid rgba(168, 50, 31, 0.3); outline-offset: 2px; }
   @media (max-width: 640px) {
@@ -68,11 +74,22 @@
 
   <h3 data-en="Before you start">开始之前</h3>
   <ul>
-    <li data-en="The two pages never go online or sync with each other: the host shares the screen and DMs on Discord, and players record things by hand on their own devices.">两个页面互不联网、互不同步：主持人通过 Discord 共享屏幕与私信，玩家在自己的设备上手动记录。</li>
+    <li data-en="Without an online room, the two pages never go online or sync with each other: the host shares the screen and DMs on Discord, and players record things by hand on their own devices.">不开联机房间时，两个页面互不联网、互不同步：主持人通过 Discord 共享屏幕与私信，玩家在自己的设备上手动记录。</li>
     <li data-en="Data lives only in this browser. Export a JSON save from the page before switching devices or clearing your cache.">数据只保存在当前浏览器里。换设备或清缓存前，请在页面里导出 JSON 存档。</li>
     <li data-en="Numbers the rules haven't settled yet always show “to configure / host decides”; the page never fills them in for you.">规则里还没确定的数值一律显示「待配置／主持人裁定」，页面不会替你补值。</li>
     <li data-en="To learn the flow first, both pages have a separate “demo save” that never touches real data.">想先熟悉流程：两个页面都有独立的「演示存档」，不会碰到正式数据。</li>
   </ul>
+
+  <section class="online" aria-labelledby="online-title">
+    <h3 id="online-title" data-en="Online play (optional)">联机（可选）</h3>
+    <p data-en="The host opens a room on the host panel's “Online” tab, and players join by scanning the QR code or opening the link. Public info then shows live on players' phones; whoever's turn it is picks supplies or votes on their own page, and items go into their inventory automatically; gifts, hand-ins and treating others reach the other page directly.">主持人在主持人面板的「联机」页开房间，玩家扫码或点链接加入。之后公开信息实时显示在玩家手机上；轮到谁领补给、投票，就在自己的页面上点，领到的物品自动入库；赠予、交公、治疗他人直接送到对方页面。</p>
+    <ul>
+      <li data-en="Cloud (default): open a room right on this site — nothing to install.">云端（默认）：直接在这个网站上开房间，什么都不用装。</li>
+      <li data-en="LAN: everyone on the same Wi‑Fi, no internet needed. Download shelter-lan.mjs (needs Node.js 18 or newer), run node shelter-lan.mjs on the host's computer, then open the addresses shown in its window.">局域网：大家连同一个 Wi‑Fi，不需要外网。下载 shelter-lan.mjs（需要 Node.js 18 或更新版本），在主持人电脑上运行 node shelter-lan.mjs，再打开窗口里显示的地址。</li>
+      <li data-en="Pages opened from a LAN address keep their own saves: export JSON here first and import it there if you want to carry a save over.">局域网地址打开的页面有自己独立的存档：需要的话先在这里导出 JSON，再到局域网页面导入。</li>
+    </ul>
+    <a class="dl" href="shelter-lan.mjs" data-page="shelter-lan.mjs" download data-en="Download LAN server (shelter-lan.mjs)">下载局域网服务器（shelter-lan.mjs）</a>
+  </section>
 
   <footer>
     <span data-en="First version · rules snapshot 2026-10-04">第一版 · 规则快照 2026-10-04</span>
@@ -90,6 +107,8 @@
       for (var i = 0; i < links.length; i++) links[i].href = path + '/' + links[i].getAttribute('data-page');
     }
     if (/(^|\.)xxxmnalx\.com$/.test(location.hostname)) document.getElementById('home-link').hidden = false;
+    // 局域网服务器打开的入口页：服务器本身就是 shelter-lan.mjs，不提供下载
+    if (window.SHELTER_LAN) document.querySelector('.dl').hidden = true;
 
     // 中文／English：与主持人、玩家页面共用同一个选择（本机记住）
     var KEY = 'shelter-playtest:lang';
