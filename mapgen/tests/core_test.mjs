@@ -12,6 +12,8 @@ function check(M){
   if(total!==sum) throw new Error('overlap: occ '+total+' vs '+sum);
   // exits within limits
   for(const rm of M.rooms){ if(!rm) continue; const deg=M.links.filter(l=>l.a===rm.id||l.b===rm.id).length; if(deg>TYPES[rm.type].maxExits) throw new Error('too many exits '+rm.type+' '+deg);}
+  // safehouse side: nothing below the entrance (y >= 3)
+  for(const k of M.occ.keys()){ if(+k.split(',')[1]>=3) throw new Error('cell below entrance '+k);}
   // connectivity: all placed rooms reachable
   if(M.depth.size!==M.rooms.filter(Boolean).length) throw new Error('disconnected');
 }

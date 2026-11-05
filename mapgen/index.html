@@ -148,7 +148,8 @@ const edgeKey=(x,y,d)=>d===0?'v'+(x+1)+','+y:d===2?'v'+x+','+y:d===1?'h'+x+','+(
 // 第 2、3 层：在 3 m 格子上门对门摆房间，再用走廊补环
 function embed(G,cfg,r){
   const occ=new Map(),rooms=[],corridors=[],links=[],openings=new Set(),joins=new Set();
-  const free=(x,y)=>!occ.has(key(x,y));
+  // 入口占 y = 0..2，下边接安全屋：入口下方（y ≥ 3）留给安全屋，不摆任何房间和走廊
+  const free=(x,y)=>y<3&&!occ.has(key(x,y));
   const place=(id,type,cells)=>{const rm={id,type,cells,set:new Set(cells.map(c=>key(c[0],c[1]))),doors:[]};for(const [x,y] of cells)occ.set(key(x,y),{kind:'room',id});rooms[id]=rm;return rm;};
   // 入口的下边接安全屋；同一面墙上的两扇门至少隔开一格
   const doorOk=(rm,x,y,d)=>{if(rm.type==='ENT'&&d===1)return false;for(const o of rm.doors){if(o.d!==d)continue;if(d%2===0?(o.x===x&&Math.abs(o.y-y)<=1):(o.y===y&&Math.abs(o.x-x)<=1))return false;}return true;};
