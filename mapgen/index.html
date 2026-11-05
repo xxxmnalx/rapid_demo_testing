@@ -1,0 +1,415 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>地图生成原型</title>
+<style>
+:root{--bg:#f4f2ec;--panel:#fff;--text:#1f1e1b;--muted:#6b6a64;--line:#e2dfd5;--wall:#3a3935;--room:#ebe8df;--corr:#d3cfc2;--fixed:#cde9df;--fixed-ink:#0c5a46;--loop:#dad6f6;--loop-ink:#4b42a8;--door:#c0761a;--glass:#2f7fd0;--accent:#0f6e56;--on-accent:#fff;--grid:rgba(0,0,0,.06);--warn:#a32d2d;color-scheme:light}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#171715;--panel:#21211e;--text:#ecebe6;--muted:#a3a29b;--line:#36352f;--wall:#d8d6cf;--room:#302f2a;--corr:#46443d;--fixed:#123f33;--fixed-ink:#9fe1cb;--loop:#312c62;--loop-ink:#cecbf6;--door:#ef9f27;--glass:#85b7eb;--accent:#5dcaa5;--on-accent:#04342c;--grid:rgba(255,255,255,.06);--warn:#f09595;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#171715;--panel:#21211e;--text:#ecebe6;--muted:#a3a29b;--line:#36352f;--wall:#d8d6cf;--room:#302f2a;--corr:#46443d;--fixed:#123f33;--fixed-ink:#9fe1cb;--loop:#312c62;--loop-ink:#cecbf6;--door:#ef9f27;--glass:#85b7eb;--accent:#5dcaa5;--on-accent:#04342c;--grid:rgba(255,255,255,.06);--warn:#f09595;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.6 -apple-system,BlinkMacSystemFont,"PingFang SC","Noto Sans SC","Microsoft YaHei",sans-serif}
+.wrap{max-width:1260px;margin:0 auto;padding:24px 16px 48px}
+h1{font-size:22px;font-weight:600;margin:0 0 4px}
+.sub{margin:0;color:var(--muted);font-size:14px}
+.layout{display:grid;grid-template-columns:300px minmax(0,1fr);gap:20px;margin-top:20px;align-items:start}
+@media (max-width:880px){.layout{grid-template-columns:minmax(0,1fr)}.layout main{order:-1}}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+.panel h2{font-size:13px;font-weight:600;color:var(--muted);margin:16px 0 4px}
+.panel h2:first-child{margin-top:0}
+.row{display:grid;grid-template-columns:1fr auto;align-items:center;gap:0 8px;margin:4px 0 8px}
+.row label{font-size:14px}
+.row output{font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums;min-width:52px;text-align:right}
+.row input[type=range]{grid-column:1/-1;width:100%;margin:2px 0 0;accent-color:var(--accent)}
+.check{display:flex;align-items:center;gap:8px;font-size:14px;margin:6px 0}
+.check input{accent-color:var(--accent)}
+.seed{display:flex;gap:8px;flex-wrap:wrap}
+.seed input{flex:1;min-width:0;font:inherit;font-size:14px;padding:6px 10px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--text)}
+button,select{font:inherit;font-size:14px;padding:6px 12px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--text);cursor:pointer}
+button:hover{border-color:var(--muted)}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.err{color:var(--warn);font-size:13px;min-height:18px;margin:4px 0 0}
+.note{font-size:13px;color:var(--muted);margin:8px 0 0}
+.toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;margin-bottom:10px}
+#mapbox{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px;overflow:hidden}
+#map{display:block;margin:0 auto}
+#map text{font-family:inherit;pointer-events:none}
+#map .room{cursor:pointer}
+.legend{display:flex;flex-wrap:wrap;gap:4px 16px;font-size:13px;color:var(--muted);margin-top:8px}
+.sw{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:-1px;margin-right:6px;border:1px solid var(--line)}
+#info{font-size:14px;margin:8px 0 0;min-height:22px}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(118px,1fr));gap:10px;margin-top:12px}
+.stat{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px 12px}
+.stat .l{font-size:12px;color:var(--muted);margin:0}
+.stat .v{font-size:20px;font-weight:600;font-variant-numeric:tabular-nums;margin:0}
+.stat.bad .v{color:var(--warn)}
+.batch{margin-top:16px}
+.batch table{border-collapse:collapse;font-size:14px;margin-top:8px;width:100%;max-width:560px}
+.batch td{padding:4px 8px;border-bottom:1px solid var(--line)}
+.batch td:last-child{text-align:right;font-variant-numeric:tabular-nums}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>地图生成原型</h1>
+<p class="sub">关系图定节奏 → 门对门摆房间 → 走廊补环。只用来定规则：随机数和游戏不同，同一个种子在 Unity 里不是这张图。</p>
+<div class="layout">
+<aside class="panel" id="controls">
+<h2>种子</h2>
+<div class="seed"><input id="seed" type="text" inputmode="numeric" aria-label="种子"><button id="rnd" type="button">换一个</button></div>
+<p class="err" id="err"></p>
+</aside>
+<main>
+<div class="toolbar">
+<label class="check" style="margin:0">颜色按 <select id="color"><option value="type">房间类型</option><option value="depth">离入口步数</option></select></label>
+<label class="check" style="margin:0"><input type="checkbox" id="graph"> 显示关系图</label>
+<label class="check" style="margin:0"><input type="checkbox" id="grid" checked> 显示 3 m 格子</label>
+<button id="copy" type="button">复制当前链接</button>
+</div>
+<div id="mapbox"><svg id="map" role="img" aria-label="生成的地图俯视图"></svg></div>
+<div class="legend">
+<span><i class="sw" style="background:var(--room)"></i>程序房间</span>
+<span><i class="sw" style="background:var(--fixed)"></i>固定房间</span>
+<span><i class="sw" style="background:var(--corr)"></i>走廊</span>
+<span><i class="sw" style="background:var(--loop)"></i>补环走廊</span>
+<span><i class="sw" style="background:var(--door)"></i>门</span>
+<span><i class="sw" style="background:var(--glass)"></i>玻璃隔断</span>
+</div>
+<p id="info">点一个房间看详情。</p>
+<div class="stats" id="stats"></div>
+<section class="batch">
+<button id="batch" type="button">批量测试 200 个种子</button>
+<div id="batchout"></div>
+</section>
+</main>
+</div>
+</div>
+<script>
+// CORE START
+const DIRS=[[1,0],[0,1],[-1,0],[0,-1]];
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+function mix(seed,n){let h=Math.imul((seed|0)^0x9e3779b9,0x85ebca6b)^Math.imul(n+1,0xc2b2ae35);h^=h>>>16;h=Math.imul(h,0x7feb352d);h^=h>>>15;return h>>>0;}
+function makeRng(seed){const f=mulberry32(seed);return{f,
+  int:(a,b)=>a+Math.floor(f()*(b-a+1)),
+  pick:a=>a[Math.floor(f()*a.length)],
+  chance:p=>f()<p,
+  weighted(items){let t=0;for(const it of items)t+=Math.max(0,it.w);if(t<=0)return null;let x=f()*t;for(const it of items){x-=Math.max(0,it.w);if(x<0)return it.v;}return items[items.length-1].v;}};}
+const rect=(w,h)=>{const c=[];for(let y=0;y<h;y++)for(let x=0;x<w;x++)c.push([x,y]);return c;};
+// 尺寸来自地图策划的房间规则表；房间 1、入口还没给，用的是规则表"示例"列的占位值。
+const TYPES={
+  R1:{name:'三口房',maxExits:3,make:r=>{const W=r.int(4,6),D=r.int(2,3),N=r.int(1,2),nx=Math.floor((W-2)/2),c=rect(W,D);for(let y=D;y<D+N;y++)for(let x=nx;x<nx+2;x++)c.push([x,y]);return c;}},
+  R2:{name:'三口小房',maxExits:3,make:r=>rect(r.int(2,4),r.int(2,4))},
+  R3:{name:'L 形拐角房',maxExits:2,make:r=>rect(r.int(3,5),r.int(3,5)).filter(([x,y])=>x<2||y<2)},
+  R4:{name:'障碍大房',maxExits:3,limit:1,make:r=>{const s=r.chance(.5)?4:5;return rect(s,s);}},
+  R5:{name:'玻璃隔断房',maxExits:3,make:r=>rect(r.int(3,5),r.int(3,5))},
+  R6:{name:'死路房',maxExits:1,leafOnly:true,make:r=>{const d=r.pick([[3,3],[3,4],[4,4]]);return rect(d[0],d[1]);}},
+  ENT:{name:'入口',maxExits:2,fixed:true,noRotate:true,make:()=>rect(3,3)},
+  GEN:{name:'供电室',maxExits:1,fixed:true,make:()=>rect(4,4)},
+  REP:{name:'维修间',maxExits:1,fixed:true,make:()=>rect(3,3)},
+  CAS:{name:'赌场',maxExits:1,fixed:true,make:()=>rect(3,4)}};
+const PROC=['R1','R2','R3','R4','R5','R6'];
+const DEFAULTS={mainLen:7,branches:4,branchMax:2,loops:2,loopMin:5,direct:.4,corrMin:2,corrMax:5,bend:.3,loopMax:14,turnCost:2,retries:20,repair:true,casino:true,tee:true,
+  weights:{R1:2,R2:3,R3:2,R4:1,R5:1,R6:2}};
+
+// 第 1 层：关系图。只决定谁连谁、每间房离入口几步、是什么类型。
+function buildGraph(cfg,r){
+  const nodes=[];
+  const add=(type,depth)=>{nodes.push({id:nodes.length,type,depth,adj:[]});return nodes.length-1;};
+  const link=(a,b)=>{nodes[a].adj.push(b);nodes[b].adj.push(a);};
+  let prev=add('ENT',0);
+  for(let i=1;i<=cfg.mainLen;i++){const n=add(i===cfg.mainLen?'GEN':null,i);link(prev,n);prev=n;}
+  // 每间房最多接 3 条，给三口房留够出口；入口和供电室不长分支
+  const canHost=n=>!['ENT','GEN','REP','CAS'].includes(nodes[n].type)&&nodes[n].adj.length<3;
+  const hosts=pred=>nodes.filter(nd=>canHost(nd.id)&&pred(nd)).map(nd=>nd.id);
+  for(let b=0;b<cfg.branches;b++){
+    const pool=hosts(()=>true);if(!pool.length)break;
+    let at=r.pick(pool);const len=r.int(1,cfg.branchMax);
+    for(let k=0;k<len;k++){const n=add(null,nodes[at].depth+1);link(at,n);at=n;}
+  }
+  const maxDepth=()=>Math.max(...nodes.map(n=>n.depth));
+  const fixedLeaf=(type,lo,hi)=>{const d=maxDepth();let pool=hosts(nd=>nd.depth>=Math.floor(d*lo)&&nd.depth<=Math.ceil(d*hi));if(!pool.length)pool=hosts(()=>true);if(!pool.length)return;const at=r.pick(pool);link(at,add(type,nodes[at].depth+1));};
+  if(cfg.repair)fixedLeaf('REP',.3,.6);
+  if(cfg.casino)fixedLeaf('CAS',.5,.9);
+  const count={};
+  for(const nd of nodes){
+    if(nd.type)continue;const deg=nd.adj.length,items=[];
+    for(const k of PROC){const T=TYPES[k];if(T.maxExits<deg||(T.leafOnly&&deg!==1)||(T.limit&&(count[k]||0)>=T.limit))continue;items.push({v:k,w:cfg.weights[k]});}
+    nd.type=r.weighted(items)||'R2';count[nd.type]=(count[nd.type]||0)+1;
+  }
+  return{nodes};
+}
+
+const key=(x,y)=>x+','+y;
+// 格子边的编号：竖边 v、横边 h，两侧的格子算出来是同一个编号
+const edgeKey=(x,y,d)=>d===0?'v'+(x+1)+','+y:d===2?'v'+x+','+y:d===1?'h'+x+','+(y+1):'h'+x+','+y;
+
+// 第 2、3 层：在 3 m 格子上门对门摆房间，再用走廊补环
+function embed(G,cfg,r){
+  const occ=new Map(),rooms=[],corridors=[],links=[],openings=new Set(),joins=new Set();
+  const free=(x,y)=>!occ.has(key(x,y));
+  const place=(id,type,cells)=>{const rm={id,type,cells,set:new Set(cells.map(c=>key(c[0],c[1]))),doors:[]};for(const [x,y] of cells)occ.set(key(x,y),{kind:'room',id});rooms[id]=rm;return rm;};
+  // 入口的下边接安全屋；同一面墙上的两扇门至少隔开一格
+  const doorOk=(rm,x,y,d)=>{if(rm.type==='ENT'&&d===1)return false;for(const o of rm.doors){if(o.d!==d)continue;if(d%2===0?(o.x===x&&Math.abs(o.y-y)<=1):(o.y===y&&Math.abs(o.x-x)<=1))return false;}return true;};
+  const slotsOf=rm=>{const s=[];for(const [x,y] of rm.cells)for(let d=0;d<4;d++){const nx=x+DIRS[d][0],ny=y+DIRS[d][1];if(rm.set.has(key(nx,ny))||!free(nx,ny)||!doorOk(rm,x,y,d))continue;s.push([x,y,d]);}return s;};
+  const shapeOf=type=>{let c=TYPES[type].make(r);if(!TYPES[type].noRotate){const k=r.int(0,3);for(let i=0;i<k;i++)c=c.map(([x,y])=>[-y,x]);}const mx=Math.min(...c.map(p=>p[0])),my=Math.min(...c.map(p=>p[1]));return c.map(([x,y])=>[x-mx,y-my]);};
+  const addCorr=(cells,a,b,loop)=>{const id=corridors.length;corridors.push({id,cells,a,b,loop});for(const [x,y] of cells)occ.set(key(x,y),{kind:'corr',id});};
+
+  function attach(p,c){
+    const P=rooms[p],type=G.nodes[c].type,slots=slotsOf(P);if(!slots.length)return false;
+    for(let t=0;t<60;t++){
+      const [sx,sy,d0]=r.pick(slots);let x=sx,y=sy,d=d0;const path=[];
+      if(!r.chance(cfg.direct)){
+        const L=r.int(cfg.corrMin,cfg.corrMax),bend=L>=2&&r.chance(cfg.bend)?r.int(1,L-1):-1,turn=r.chance(.5)?1:3;let ok=true;
+        for(let k=0;k<L;k++){if(k===bend)d=(d+turn)%4;x+=DIRS[d][0];y+=DIRS[d][1];if(!free(x,y)){ok=false;break;}path.push([x,y]);}
+        if(!ok)continue;
+      }
+      const ex=x+DIRS[d][0],ey=y+DIRS[d][1],back=(d+2)%4;if(!free(ex,ey))continue;
+      const shape=shapeOf(type),sset=new Set(shape.map(s=>key(s[0],s[1])));
+      const anchors=shape.filter(([ax,ay])=>!sset.has(key(ax+DIRS[back][0],ay+DIRS[back][1])));
+      const [ax,ay]=r.pick(anchors),cells=shape.map(([u,v])=>[u+ex-ax,v+ey-ay]);
+      const pset=new Set(path.map(q=>key(q[0],q[1])));
+      if(!cells.every(([u,v])=>free(u,v)&&!pset.has(key(u,v))))continue;
+      const C=place(c,type,cells);P.doors.push({x:sx,y:sy,d:d0});C.doors.push({x:ex,y:ey,d:back});
+      if(path.length)addCorr(path,p,c,false);
+      openings.add(edgeKey(sx,sy,d0));openings.add(edgeKey(ex,ey,back));
+      links.push({a:p,b:c,loop:false,len:path.length});
+      return true;
+    }
+    return false;
+  }
+
+  place(0,'ENT',shapeOf('ENT'));
+  const order=[0],placed=new Set([0]);
+  for(let i=0;i<order.length;i++){const p=order[i];for(const c of G.nodes[p].adj){if(placed.has(c))continue;if(attach(p,c)){placed.add(c);order.push(c);}}}
+
+  const linkEnds=l=>l.corr!==undefined?[l.a,corridors[l.corr].a,corridors[l.corr].b]:[l.a,l.b];
+  const degOf=id=>links.reduce((n,l)=>n+(l.a===id||(l.corr===undefined&&l.b===id)?1:0),0);
+  const left=id=>TYPES[rooms[id].type].maxExits-degOf(id);
+  const gdist=s=>{const dist=new Map([[s,0]]),q=[s];for(let i=0;i<q.length;i++){const u=q[i];for(const l of links){const e=linkEnds(l);if(!e.includes(u))continue;for(const v of e){if(v===u||dist.has(v))continue;dist.set(v,dist.get(u)+1);q.push(v);}}}return dist;};
+  const bbox=rm=>{let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;for(const [x,y] of rm.cells){if(x<x0)x0=x;if(y<y0)y0=y;if(x>x1)x1=x;if(y>y1)y1=y;}return{x0,y0,x1,y1};};
+  const gap=(a,b)=>{const A=bbox(a),B=bbox(b);return Math.max(0,B.x0-A.x1-1,A.x0-B.x1-1)+Math.max(0,B.y0-A.y1-1,A.y0-B.y1-1);};
+  // 补环的终点：另一间房的墙（开门），或者一段已有走廊的侧面（接成 T 字口）
+  const roomGoal=V=>(vx,vy,d2)=>V.set.has(key(vx,vy))&&doorOk(V,vx,vy,(d2+2)%4)?{door:[vx,vy,(d2+2)%4]}:null;
+  const corrGoal=C=>(vx,vy,d2,x,y)=>{const o=occ.get(key(vx,vy)),ek=edgeKey(x,y,d2);return o&&o.kind==='corr'&&o.id===C.id&&!openings.has(ek)&&!joins.has(ek)?{at:[vx,vy]}:null;};
+
+  // 在空格子里找一条走廊：每走一格 1 分，拐一次弯另加 turnCost 分，取总分最低的路线
+  function route(U,goal){
+    const direct=[];
+    for(const [x,y] of U.cells)for(let d=0;d<4;d++){const nx=x+DIRS[d][0],ny=y+DIRS[d][1];if(U.set.has(key(nx,ny))||!doorOk(U,x,y,d))continue;const g=goal(nx,ny,d,x,y);if(g)direct.push({a:[x,y,d],g});}
+    if(direct.length){const pk=r.pick(direct);return{path:[],a:pk.a,g:pk.g,end:null};}
+    const A=bbox(U),M=cfg.loopMax,lx=A.x0-M-1,ly=A.y0-M-1,hx=A.x1+M+1,hy=A.y1+M+1;
+    const H=[],best=new Map(),prev=new Map();
+    const push=e=>{H.push(e);let i=H.length-1;while(i>0){const p=(i-1)>>1;if(H[p].c<=H[i].c)break;[H[p],H[i]]=[H[i],H[p]];i=p;}};
+    const pop=()=>{const top=H[0],last=H.pop();if(H.length){H[0]=last;let i=0;for(;;){const l=2*i+1,rr=l+1;let m=i;if(l<H.length&&H[l].c<H[m].c)m=l;if(rr<H.length&&H[rr].c<H[m].c)m=rr;if(m===i)break;[H[m],H[i]]=[H[i],H[m]];i=m;}}return top;};
+    for(const [x,y,d] of slotsOf(U)){const nx=x+DIRS[d][0],ny=y+DIRS[d][1],sk=nx+','+ny+','+d;if((best.get(sk)??1e9)>1){best.set(sk,1);prev.set(sk,{start:[x,y,d]});push({c:1,x:nx,y:ny,d,n:1,sk});}}
+    while(H.length){
+      const s=pop();if(s.c>best.get(s.sk))continue;
+      for(let d2=0;d2<4;d2++){const g=goal(s.x+DIRS[d2][0],s.y+DIRS[d2][1],d2,s.x,s.y);if(!g)continue;
+        const path=[];let k=s.sk,start=null;while(k){const [px,py]=k.split(',').map(Number);path.unshift([px,py]);const pv=prev.get(k);if(pv.start){start=pv.start;break;}k=pv.from;}
+        return{path,a:start,g,end:[s.x,s.y,d2]};}
+      if(s.n>=M)continue;
+      for(const nd of [s.d,(s.d+1)%4,(s.d+3)%4]){
+        const nx=s.x+DIRS[nd][0],ny=s.y+DIRS[nd][1];if(nx<lx||ny<ly||nx>hx||ny>hy||!free(nx,ny))continue;
+        const c=s.c+1+(nd!==s.d?cfg.turnCost:0),sk=nx+','+ny+','+nd;
+        if(c<(best.get(sk)??1e9)){best.set(sk,c);prev.set(sk,{from:s.sk});push({c,x:nx,y:ny,d:nd,n:s.n+1,sk});}
+      }
+    }
+    return null;
+  }
+
+  let loopsMade=0;
+  for(let it=0;it<cfg.loops;it++){
+    const ids=rooms.filter(Boolean).map(q=>q.id).filter(id=>left(id)>0),cands=[];
+    for(const u of ids){
+      const dist=gdist(u);
+      for(const v of ids){if(v<=u)continue;const gd=dist.get(v);if(gd===undefined||gd+1<cfg.loopMin)continue;const g=gap(rooms[u],rooms[v]);if(g<=cfg.loopMax)cands.push({u,t:{room:v},g,k:r.f()});}
+      if(cfg.tee)for(const C of corridors){if(C.a===u||C.b===u)continue;const da=dist.get(C.a),db=dist.get(C.b);if(da===undefined||db===undefined||Math.min(da,db)+1<cfg.loopMin)continue;const g=gap(rooms[u],C);if(g<=cfg.loopMax)cands.push({u,t:{corr:C.id},g:g+1,k:r.f()});}
+    }
+    cands.sort((p,q)=>p.g-q.g||p.k-q.k);
+    let ok=false;
+    for(const cd of cands.slice(0,32)){
+      const res=route(rooms[cd.u],cd.t.room!==undefined?roomGoal(rooms[cd.t.room]):corrGoal(corridors[cd.t.corr]));if(!res)continue;
+      const U=rooms[cd.u];U.doors.push({x:res.a[0],y:res.a[1],d:res.a[2]});openings.add(edgeKey(...res.a));
+      if(cd.t.room!==undefined){
+        const V=rooms[cd.t.room],dr=res.g.door;V.doors.push({x:dr[0],y:dr[1],d:dr[2]});
+        if(res.path.length){addCorr(res.path,cd.u,cd.t.room,true);openings.add(edgeKey(...res.end));}
+        links.push({a:cd.u,b:cd.t.room,loop:true,len:res.path.length});
+      }else{
+        const C=corridors[cd.t.corr];
+        if(res.path.length){addCorr(res.path,cd.u,C.a,true);joins.add(edgeKey(...res.end));}
+        links.push({a:cd.u,b:null,corr:C.id,at:res.g.at,loop:true,len:res.path.length});
+      }
+      loopsMade++;ok=true;break;
+    }
+    if(!ok)break;
+  }
+  return{rooms,corridors,links,openings,joins,occ,loopsMade,placedCount:rooms.filter(Boolean).length,depth:gdist(0)};
+}
+
+// 摆不下就换一个派生种子整张重来；全都摆不下时留下摆得最多的那一次
+function generate(seed,cfg){
+  let best=null,tries=0;
+  for(let a=0;a<cfg.retries;a++){
+    tries=a+1;const r=makeRng(mix(seed,a)),G=buildGraph(cfg,r),M=embed(G,cfg,r);M.G=G;
+    if(M.placedCount===G.nodes.length){best=M;break;}
+    if(!best||M.placedCount/G.nodes.length>best.placedCount/best.G.nodes.length)best=M;
+  }
+  best.tries=tries;best.ok=best.placedCount===best.G.nodes.length;return best;
+}
+
+function summarize(M,cfg){
+  const rooms=M.rooms.filter(Boolean),deg=id=>M.links.reduce((n,l)=>n+(l.a===id||(l.corr===undefined&&l.b===id)?1:0),0);
+  let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;for(const k of M.occ.keys()){const [x,y]=k.split(',').map(Number);if(x<x0)x0=x;if(y<y0)y0=y;if(x>x1)x1=x;if(y>y1)y1=y;}
+  const gen=rooms.find(q=>q.type==='GEN');
+  return{planned:M.G.nodes.length,placed:rooms.length,loops:M.loopsMade,loopsWant:cfg.loops,
+    dead:rooms.filter(q=>q.id!==0&&deg(q.id)===1).length,main:gen?M.depth.get(gen.id):null,
+    doors:M.links.reduce((n,l)=>n+(l.corr!==undefined||!l.len?1:2),0),tees:M.links.filter(l=>l.corr!==undefined).length,w:x1-x0+1,h:y1-y0+1,
+    corrShare:M.links.length?M.links.filter(l=>l.len>0).length/M.links.length:0,tries:M.tries};
+}
+// CORE END
+
+const CONTROLS=[
+  {group:'关系图（节奏）',items:[
+    {k:'mainLen',label:'主路房间数',min:3,max:14,unit:'间'},
+    {k:'branches',label:'分支数',min:0,max:10,unit:'条'},
+    {k:'branchMax',label:'分支最长',min:1,max:4,unit:'间'},
+    {k:'loops',label:'环路数',min:0,max:6,unit:'条'},
+    {k:'loopMin',label:'环至少经过',min:3,max:12,unit:'间'}]},
+  {group:'摆房间（空间）',items:[
+    {k:'direct',label:'门直连比例',min:0,max:100,unit:'%',pct:true},
+    {k:'corrMin',label:'走廊最短',min:1,max:10,unit:'格'},
+    {k:'corrMax',label:'走廊最长',min:1,max:12,unit:'格'},
+    {k:'bend',label:'走廊拐弯比例',min:0,max:100,unit:'%',pct:true},
+    {k:'loopMax',label:'补环走廊最长',min:2,max:24,unit:'格'},
+    {k:'tee',label:'补环可以接到走廊中间（T 字口）',check:true}]},
+  {group:'房间配比（权重，0 = 不出现）',items:PROC.map(k=>({k:'w.'+k,label:k+' '+TYPES[k].name,min:0,max:5,unit:''})).concat([
+    {k:'repair',label:'放维修间（9 格，单出口）',check:true},{k:'casino',label:'放赌场（12 格，单出口）',check:true}])}];
+
+let cfg=JSON.parse(JSON.stringify(DEFAULTS)),seed=20261105,current=null;
+const $=id=>document.getElementById(id);
+const getV=k=>k.startsWith('w.')?cfg.weights[k.slice(2)]:cfg[k];
+const setV=(k,v)=>{if(k.startsWith('w.'))cfg.weights[k.slice(2)]=v;else cfg[k]=v;};
+
+function readHash(){
+  const p=new URLSearchParams(location.hash.slice(1));
+  if(p.has('s')&&/^-?\d+$/.test(p.get('s')))seed=+p.get('s');
+  for(const g of CONTROLS)for(const it of g.items){const raw=p.get(it.k);if(raw===null)continue;if(it.check){cfg[it.k]=raw==='1';continue;}if(isNaN(+raw))continue;const v=Math.min(it.max,Math.max(it.min,Math.round(+raw)));setV(it.k,it.pct?v/100:v);}
+}
+function writeHash(){
+  const p=new URLSearchParams({s:String(seed)});
+  for(const g of CONTROLS)for(const it of g.items){if(it.check){p.set(it.k,cfg[it.k]?'1':'0');continue;}const v=getV(it.k);p.set(it.k,String(it.pct?Math.round(v*100):v));}
+  history.replaceState(null,'','#'+p.toString());
+}
+
+function buildControls(){
+  const box=$('controls');
+  for(const g of CONTROLS){
+    const h=document.createElement('h2');h.textContent=g.group;box.appendChild(h);
+    for(const it of g.items){
+      if(it.check){const l=document.createElement('label');l.className='check';l.innerHTML='<input type="checkbox"> '+it.label;const cb=l.querySelector('input');cb.checked=!!cfg[it.k];cb.addEventListener('change',()=>{cfg[it.k]=cb.checked;run();});box.appendChild(l);continue;}
+      const row=document.createElement('div');row.className='row';const id='c_'+it.k.replace('.','_');
+      row.innerHTML='<label for="'+id+'">'+it.label+'</label><output id="'+id+'_o"></output><input type="range" id="'+id+'" min="'+it.min+'" max="'+it.max+'" step="1">';
+      box.appendChild(row);
+      const input=row.querySelector('input'),out=row.querySelector('output');
+      const show=()=>{out.textContent=input.value+it.unit;};
+      input.value=String(it.pct?Math.round(getV(it.k)*100):getV(it.k));show();
+      input.addEventListener('input',()=>{const v=+input.value;setV(it.k,it.pct?v/100:v);
+        if(it.k==='corrMin'&&cfg.corrMax<v){cfg.corrMax=v;$('c_corrMax').value=String(v);$('c_corrMax_o').textContent=v+'格';}
+        if(it.k==='corrMax'&&cfg.corrMin>v){cfg.corrMin=v;$('c_corrMin').value=String(v);$('c_corrMin_o').textContent=v+'格';}
+        show();run();});
+    }
+  }
+  const n=document.createElement('p');n.className='note';
+  n.textContent='默认值来自地图策划的房间规则表。房间 1 的尺寸、入口大小、走廊长度、各类房间多少还在等回答，现在是占位值。供电室固定放在主路最深处。';
+  box.appendChild(n);
+  const reset=document.createElement('button');reset.type='button';reset.textContent='恢复默认参数';reset.style.marginTop='12px';
+  reset.addEventListener('click',()=>{cfg=JSON.parse(JSON.stringify(DEFAULTS));location.hash='s='+seed;location.reload();});
+  box.appendChild(reset);
+}
+
+function run(){current=generate(seed,cfg);writeHash();render();}
+
+function render(){
+  const M=current,box=$('mapbox'),svg=$('map'),mode=$('color').value;
+  let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;for(const k of M.occ.keys()){const [x,y]=k.split(',').map(Number);if(x<x0)x0=x;if(y<y0)y0=y;if(x>x1)x1=x;if(y>y1)y1=y;}
+  const cols=x1-x0+3,rows=y1-y0+4,avail=box.clientWidth-18,availH=Math.max(420,innerHeight*.78),s=Math.max(5,Math.min(26,Math.floor(avail/cols),Math.floor(availH/rows)));
+  const X=x=>(x-x0+1)*s,Y=y=>(y-y0+1)*s,W=cols*s,Hh=rows*s;
+  svg.setAttribute('width',W);svg.setAttribute('height',Hh);svg.setAttribute('viewBox','0 0 '+W+' '+Hh);
+  const o=[];
+  if($('grid').checked){for(let x=x0;x<=x1+1;x++)o.push('<line x1="'+X(x)+'" y1="'+Y(y0)+'" x2="'+X(x)+'" y2="'+Y(y1+1)+'" stroke="var(--grid)"/>');for(let y=y0;y<=y1+1;y++)o.push('<line x1="'+X(x0)+'" y1="'+Y(y)+'" x2="'+X(x1+1)+'" y2="'+Y(y)+'" stroke="var(--grid)"/>');}
+  const maxDepth=Math.max(1,...M.depth.values());
+  const fillRoom=rm=>mode==='depth'?'color-mix(in srgb, var(--accent) '+Math.round(8+62*(M.depth.get(rm.id)||0)/maxDepth)+'%, var(--room))':TYPES[rm.type].fixed?'var(--fixed)':'var(--room)';
+  for(const c of M.corridors)for(const [x,y] of c.cells)o.push('<rect x="'+X(x)+'" y="'+Y(y)+'" width="'+(s+.5)+'" height="'+(s+.5)+'" fill="'+(c.loop?'var(--loop)':'var(--corr)')+'"/>');
+  for(const rm of M.rooms){if(!rm)continue;o.push('<g class="room" data-id="'+rm.id+'">');for(const [x,y] of rm.cells)o.push('<rect x="'+X(x)+'" y="'+Y(y)+'" width="'+(s+.5)+'" height="'+(s+.5)+'" fill="'+fillRoom(rm)+'"/>');o.push('</g>');}
+  for(const rm of M.rooms){
+    if(!rm)continue;let bx0=1e9,by0=1e9,bx1=-1e9,by1=-1e9;for(const [x,y] of rm.cells){bx0=Math.min(bx0,x);by0=Math.min(by0,y);bx1=Math.max(bx1,x);by1=Math.max(by1,y);}
+    if(rm.type==='R4'){const w=(bx1-bx0+1)*s,h=(by1-by0+1)*s;o.push('<rect x="'+(X(bx0)+w*.32)+'" y="'+(Y(by0)+h*.32)+'" width="'+w*.36+'" height="'+h*.36+'" rx="2" fill="var(--wall)" opacity=".28"/>');}
+    if(rm.type==='R5'){const w=bx1-bx0+1,h=by1-by0+1;if(w>=h){const xm=X(bx0)+w*s/2;o.push('<line x1="'+xm+'" y1="'+(Y(by0)+s*.3)+'" x2="'+xm+'" y2="'+(Y(by1+1)-s*.3)+'" stroke="var(--glass)" stroke-width="2.5" stroke-dasharray="'+s*.6+' '+s*.25+'"/>');}else{const ym=Y(by0)+h*s/2;o.push('<line x1="'+(X(bx0)+s*.3)+'" y1="'+ym+'" x2="'+(X(bx1+1)-s*.3)+'" y2="'+ym+'" stroke="var(--glass)" stroke-width="2.5" stroke-dasharray="'+s*.6+' '+s*.25+'"/>');}}
+  }
+  const done=new Set(),seg=(ax,ay,bx,by,col,w)=>'<line x1="'+ax+'" y1="'+ay+'" x2="'+bx+'" y2="'+by+'" stroke="'+col+'" stroke-width="'+w+'" stroke-linecap="square"/>';
+  const ww=Math.max(1.5,s*.09);
+  for(const [k,a] of M.occ){
+    const [x,y]=k.split(',').map(Number);
+    for(let d=0;d<4;d++){
+      const ek=edgeKey(x,y,d);if(done.has(ek))continue;done.add(ek);if(M.joins.has(ek))continue;
+      const b=M.occ.get(key(x+DIRS[d][0],y+DIRS[d][1]));if(b&&b.kind===a.kind&&b.id===a.id)continue;
+      let ax,ay,bx,by;
+      if(d===0||d===2){ax=bx=X(d===0?x+1:x);ay=Y(y);by=Y(y+1);}else{ay=by=Y(d===1?y+1:y);ax=X(x);bx=X(x+1);}
+      if(M.openings.has(ek)){const f=.23;o.push(seg(ax,ay,ax+(bx-ax)*f,ay+(by-ay)*f,'var(--wall)',ww),seg(bx-(bx-ax)*f,by-(by-ay)*f,bx,by,'var(--wall)',ww),seg(ax+(bx-ax)*.3,ay+(by-ay)*.3,bx-(bx-ax)*.3,by-(by-ay)*.3,'var(--door)',ww*1.4));}
+      else o.push(seg(ax,ay,bx,by,'var(--wall)',ww));
+    }
+  }
+  const ent=M.rooms[0],ex=X(1)+s*.5,ey=Y(3);
+  o.push(seg(X(1),ey,X(1)+s*.23,ey,'var(--wall)',ww),seg(X(2)-s*.23,ey,X(2),ey,'var(--wall)',ww),seg(X(1)+s*.3,ey,X(2)-s*.3,ey,'var(--door)',ww*1.4));
+  if(s>=9)o.push('<text x="'+ex+'" y="'+(ey+s*.6+11)+'" text-anchor="middle" font-size="11" fill="var(--muted)">安全屋</text>');
+  const labelAt={};
+  for(const rm of M.rooms){if(!rm)continue;const cx=rm.cells.reduce((a,c)=>a+c[0],0)/rm.cells.length,cy=rm.cells.reduce((a,c)=>a+c[1],0)/rm.cells.length;
+    let bc=rm.cells[0],bd=1e9;for(const c of rm.cells){const dd=(c[0]-cx)**2+(c[1]-cy)**2;if(dd<bd){bd=dd;bc=c;}}
+    const lx=X(bc[0])+s/2,ly=Y(bc[1])+s/2;labelAt[rm.id]=[lx,ly];
+    const T=TYPES[rm.type],txt=mode==='depth'?String(M.depth.get(rm.id)??''):(T.fixed?T.name:rm.type);
+    if(s>=12||T.fixed)o.push('<text x="'+lx+'" y="'+(ly+4)+'" text-anchor="middle" font-size="11" fill="'+(T.fixed&&mode==='type'?'var(--fixed-ink)':'var(--text)')+'">'+txt+'</text>');}
+  if($('graph').checked){
+    for(const l of M.links){const a=labelAt[l.a],b=l.corr!==undefined?[X(l.at[0])+s/2,Y(l.at[1])+s/2]:labelAt[l.b];if(!a||!b)continue;o.push('<line x1="'+a[0]+'" y1="'+a[1]+'" x2="'+b[0]+'" y2="'+b[1]+'" stroke="'+(l.loop?'var(--loop-ink)':'var(--text)')+'" stroke-width="2" opacity=".7"'+(l.loop?' stroke-dasharray="5 4"':'')+'/>');}
+    for(const id in labelAt){const [a,b]=labelAt[id];o.push('<circle cx="'+a+'" cy="'+b+'" r="4" fill="var(--text)" opacity=".7"/>');}
+  }
+  svg.innerHTML=o.join('');
+  const st=summarize(M,cfg),card=(l,v,bad)=>'<div class="stat'+(bad?' bad':'')+'"><p class="l">'+l+'</p><p class="v">'+v+'</p></div>';
+  $('stats').innerHTML=card('房间摆下',st.placed+' / '+st.planned,st.placed<st.planned)+card('环路',st.loops+' / '+st.loopsWant,st.loops<st.loopsWant)+card('其中 T 字口',st.tees)+card('死路',st.dead)
+    +card('入口到供电室',st.main===null?'—':st.main+' 步')+card('门洞',st.doors,st.doors>32)+card('地图大小',st.w*3+'×'+st.h*3+' m')
+    +card('用走廊的连接',Math.round(st.corrShare*100)+'%')+card('重试次数',st.tries,st.tries>1);
+  $('info').textContent='点一个房间看详情。'+(st.doors>32?' 门洞超过 32 个：如果每个都装能开关的门，会超出联机同步上限。':'');
+}
+
+$('map').addEventListener('click',e=>{
+  const g=e.target.closest('.room');if(!g||!current)return;const rm=current.rooms[+g.dataset.id],T=TYPES[rm.type];
+  let bx0=1e9,by0=1e9,bx1=-1e9,by1=-1e9;for(const [x,y] of rm.cells){bx0=Math.min(bx0,x);by0=Math.min(by0,y);bx1=Math.max(bx1,x);by1=Math.max(by1,y);}
+  const deg=current.links.filter(l=>l.a===rm.id||l.b===rm.id).length;
+  $('info').textContent=T.name+'（'+rm.type+'）：占地 '+rm.cells.length+' 格（约 '+rm.cells.length*9+' m²），外框 '+(bx1-bx0+1)+'×'+(by1-by0+1)+' 格；离入口 '+(current.depth.get(rm.id)??'—')+' 步；出口 '+deg+' / 最多 '+T.maxExits+'。';
+});
+
+function runBatch(){
+  const N=200,t0=performance.now();let ok=0,loops=0,tries=0,over=0,area=0,dead=0,rooms=0,want=0;
+  for(let i=0;i<N;i++){const M=generate(seed+i,cfg),st=summarize(M,cfg);if(M.ok)ok++;loops+=st.loops;want+=st.loopsWant;tries+=st.tries;if(st.doors>32)over++;area+=st.w*st.h*9;dead+=st.dead;rooms+=st.placed;}
+  const row=(a,b)=>'<tr><td>'+a+'</td><td>'+b+'</td></tr>';
+  $('batchout').innerHTML='<table>'+row('种子范围',seed+' 到 '+(seed+N-1))+row('所有房间都摆下',Math.round(ok/N*100)+'%')
+    +row('平均环路（要求 '+cfg.loops+' 条）',(loops/N).toFixed(2))+row('平均重试次数',(tries/N).toFixed(2))+row('平均房间数',(rooms/N).toFixed(1))
+    +row('平均死路',(dead/N).toFixed(1))+row('平均地图外框面积',Math.round(area/N)+' m²')+row('门洞超过 32 个',Math.round(over/N*100)+'%')
+    +row('用时',Math.round(performance.now()-t0)+' ms')+'</table>';
+}
+
+function setSeed(){const t=$('seed').value.trim();if(!/^-?\d+$/.test(t)||Math.abs(+t)>2147483647){$('err').textContent='种子要填一个整数';return false;}$('err').textContent='';seed=+t;return true;}
+readHash();buildControls();$('seed').value=String(seed);
+$('seed').addEventListener('change',()=>{if(setSeed())run();});
+$('seed').addEventListener('keydown',e=>{if(e.key==='Enter'&&setSeed())run();});
+$('seed').addEventListener('input',()=>{$('err').textContent='';});
+$('rnd').addEventListener('click',()=>{seed=Math.floor(Math.random()*2147483647);$('seed').value=String(seed);run();});
+$('color').addEventListener('change',render);$('graph').addEventListener('change',render);$('grid').addEventListener('change',render);
+$('batch').addEventListener('click',()=>{$('batchout').textContent='计算中…';setTimeout(runBatch,20);});
+$('copy').addEventListener('click',()=>{navigator.clipboard?.writeText(location.href).then(()=>{$('copy').textContent='已复制';setTimeout(()=>{$('copy').textContent='复制当前链接';},1500);},()=>{});});
+let rt;addEventListener('resize',()=>{clearTimeout(rt);rt=setTimeout(()=>current&&render(),120);});
+run();
+</script>
+</body>
+</html>

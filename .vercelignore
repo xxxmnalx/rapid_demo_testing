@@ -12,3 +12,7 @@ shelter/package.json
 shelter/package-lock.json
 shelter/.gitignore
 shelter/README.md
+
+# 地图生成原型只上线 mapgen/index.html；说明和测试脚本不部署。
+mapgen/README.md
+mapgen/tests
