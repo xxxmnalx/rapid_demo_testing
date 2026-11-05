@@ -6,6 +6,7 @@
 | --- | --- | --- |
 | 骰迹 · 玩法测试原型 | 根目录（`index.html`） | `www.xxxmnalx.com/game/demo` |
 | 避难所 Playtest · 主持人／玩家双网页 | [`shelter/`](./shelter/README.md) | `www.xxxmnalx.com/game/shelter` |
+| 地图生成原型（We'll Be Right Back 下水道地图） | [`mapgen/`](./mapgen/README.md) | `www.xxxmnalx.com/game/mapgen` |
 
 ---
 
